@@ -3,18 +3,20 @@
  * Class ECICharset
  *
  * @created      21.01.2021
+ * @author       ZXing Authors
  * @author       smiley <smiley@chillerlan.net>
  * @copyright    2021 smiley
- * @license      MIT
+ * @license      Apache-2.0
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Common;
 
 use chillerlan\QRCode\QRCodeException;
-use function array_key_exists;
+use function sprintf;
 
 /**
- *
+ * ISO/IEC 18004:2000 - 8.4.1 Extended Channel Interpretation (ECI) Mode
  */
 final class ECICharset{
 
@@ -97,8 +99,8 @@ final class ECICharset{
 	 */
 	public function __construct(int $charsetID){
 
-		if(!array_key_exists($charsetID, self::MB_ENCODINGS)){
-			throw new QRCodeException('invalid charset id: '.$charsetID);
+		if($charsetID < 0 || $charsetID > 999999){
+			throw new QRCodeException(sprintf('invalid charset id: "%s"', $charsetID));
 		}
 
 		$this->charsetID = $charsetID;
@@ -117,8 +119,8 @@ final class ECICharset{
 	 * @see \mb_convert_encoding()
 	 * @see \iconv()
 	 */
-	public function getName():?string{
-		return self::MB_ENCODINGS[$this->charsetID];
+	public function getName():string|null{
+		return (self::MB_ENCODINGS[$this->charsetID] ?? null);
 	}
 
 }

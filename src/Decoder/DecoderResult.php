@@ -8,18 +8,20 @@
  * @copyright    2021 Smiley
  * @license      Apache-2.0
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Decoder;
 
-use chillerlan\QRCode\Common\{EccLevel, MaskPattern, Version};
+use chillerlan\QRCode\Common\{BitBuffer, EccLevel, MaskPattern, Version};
+use chillerlan\QRCode\Data\QRMatrix;
 use function property_exists;
 
 /**
  * Encapsulates the result of decoding a matrix of bits. This typically
- * applies to 2D barcode formats. For now it contains the raw bytes obtained,
+ * applies to 2D barcode formats. For now, it contains the raw bytes obtained
  * as well as a String interpretation of those bytes, if applicable.
  *
- * @property int[]                                 $rawBytes
+ * @property \chillerlan\QRCode\Common\BitBuffer   $rawBytes
  * @property string                                $data
  * @property \chillerlan\QRCode\Common\Version     $version
  * @property \chillerlan\QRCode\Common\EccLevel    $eccLevel
@@ -29,18 +31,20 @@ use function property_exists;
  */
 final class DecoderResult{
 
-	protected array       $rawBytes;
-	protected string      $data;
-	protected Version     $version;
-	protected EccLevel    $eccLevel;
-	protected MaskPattern $maskPattern;
-	protected int         $structuredAppendParity = -1;
-	protected int         $structuredAppendSequence = -1;
+	private BitBuffer   $rawBytes;
+	private Version     $version;
+	private EccLevel    $eccLevel;
+	private MaskPattern $maskPattern;
+	private string      $data = '';
+	private int         $structuredAppendParity = -1;
+	private int         $structuredAppendSequence = -1;
 
 	/**
 	 * DecoderResult constructor.
+	 *
+	 * @phpstan-param array<string, mixed> $properties
 	 */
-	public function __construct(iterable $properties = null){
+	public function __construct(iterable|null $properties = null){
 
 		if(!empty($properties)){
 
@@ -57,10 +61,7 @@ final class DecoderResult{
 
 	}
 
-	/**
-	 * @return mixed|null
-	 */
-	public function __get(string $property){
+	public function __get(string $property):mixed{
 
 		if(property_exists($this, $property)){
 			return $this->{$property};
@@ -69,18 +70,24 @@ final class DecoderResult{
 		return null;
 	}
 
-	/**
-	 *
-	 */
 	public function __toString():string{
 		return $this->data;
 	}
 
-	/**
-	 *
-	 */
 	public function hasStructuredAppend():bool{
 		return $this->structuredAppendParity >= 0 && $this->structuredAppendSequence >= 0;
+	}
+
+	/**
+	 * Returns a QRMatrix instance with the settings and data of the reader result
+	 */
+	public function getQRMatrix():QRMatrix{
+		return (new QRMatrix($this->version, $this->eccLevel))
+			->initFunctionalPatterns()
+			->writeCodewords($this->rawBytes)
+			->setFormatInfo($this->maskPattern)
+			->mask($this->maskPattern)
+		;
 	}
 
 }

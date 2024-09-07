@@ -7,9 +7,15 @@
  * @copyright    2021 smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Decoder;
 
 use chillerlan\QRCode\QRCodeException;
 
-final class QRCodeDecoderException extends QRCodeException{}
+/**
+ * An exception container
+ */
+final class QRCodeDecoderException extends QRCodeException{
+
+}

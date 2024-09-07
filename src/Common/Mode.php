@@ -7,14 +7,15 @@
  * @copyright    2020 smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Common;
 
-use chillerlan\QRCode\Data\{AlphaNum, Byte, Kanji, Number};
+use chillerlan\QRCode\Data\{AlphaNum, Byte, Hanzi, Kanji, Number};
 use chillerlan\QRCode\QRCodeException;
 
 /**
- * ISO 18004:2006, 6.4.1, Tables 2 and 3
+ * Data mode information - ISO 18004:2006, 6.4.1, Tables 2 and 3
  */
 final class Mode{
 
@@ -31,6 +32,8 @@ final class Mode{
 	/** @var int */
 	public const KANJI            = 0b1000;
 	/** @var int */
+	public const HANZI            = 0b1101;
+	/** @var int */
 	public const STRCTURED_APPEND = 0b0011;
 	/** @var int */
 	public const FNC1_FIRST       = 0b0101;
@@ -46,20 +49,23 @@ final class Mode{
 	 */
 	public const LENGTH_BITS = [
 		self::NUMBER   => [10, 12, 14],
-		self::ALPHANUM => [9, 11, 13],
-		self::BYTE     => [8, 16, 16],
-		self::KANJI    => [8, 10, 12],
+		self::ALPHANUM => [ 9, 11, 13],
+		self::BYTE     => [ 8, 16, 16],
+		self::KANJI    => [ 8, 10, 12],
+		self::HANZI    => [ 8, 10, 12],
+		self::ECI      => [ 0,  0,  0],
 	];
 
 	/**
 	 * Map of data mode => interface (detection order)
 	 *
-	 * @var string[]
+	 * @var array<int, (\chillerlan\QRCode\Data\QRDataModeInterface|string)>
 	 */
 	public const INTERFACES = [
 		self::NUMBER   => Number::class,
 		self::ALPHANUM => AlphaNum::class,
 		self::KANJI    => Kanji::class,
+		self::HANZI    => Hanzi::class,
 		self::BYTE     => Byte::class,
 	];
 
@@ -86,13 +92,6 @@ final class Mode{
 		}
 
 		throw new QRCodeException(sprintf('invalid version number: %d', $version));
-	}
-
-	/**
-	 * returns the array of length bits for the given mode
-	 */
-	public static function getLengthBitsForMode(int $mode):array{
-		return self::LENGTH_BITS[$mode];
 	}
 
 }

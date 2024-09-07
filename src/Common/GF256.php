@@ -8,6 +8,7 @@
  * @copyright    2021 Smiley
  * @license      Apache-2.0
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Common;
 
@@ -79,7 +80,7 @@ final class GF256{
 	 * @return int sum/difference of a and b
 	 */
 	public static function addOrSubtract(int $a, int $b):int{
-		return $a ^ $b;
+		return ($a ^ $b);
 	}
 
 	/**
@@ -92,14 +93,14 @@ final class GF256{
 			throw new QRCodeException('degree < 0');
 		}
 
-		$coefficients    = array_fill(0, $degree + 1, 0);
+		$coefficients    = array_fill(0, ($degree + 1), 0);
 		$coefficients[0] = $coefficient;
 
 		return new GenericGFPoly($coefficients);
 	}
 
 	/**
-	 * @return int 2 to the power of a in GF(size)
+	 * @return int 2 to the power of $a in GF(size)
 	 */
 	public static function exp(int $a):int{
 
@@ -114,7 +115,7 @@ final class GF256{
 	}
 
 	/**
-	 * @return int base 2 log of a in GF(size)
+	 * @return int base 2 log of $a in GF(size)
 	 * @throws \chillerlan\QRCode\QRCodeException
 	 */
 	public static function log(int $a):int{
@@ -136,7 +137,7 @@ final class GF256{
 			throw new QRCodeException('$a === 0');
 		}
 
-		return self::expTable[256 - self::logTable[$a] - 1];
+		return self::expTable[(256 - self::logTable[$a] - 1)];
 	}
 
 	/**
@@ -148,7 +149,7 @@ final class GF256{
 			return 0;
 		}
 
-		return self::expTable[(self::logTable[$a] + self::logTable[$b]) % 255];
+		return self::expTable[((self::logTable[$a] + self::logTable[$b]) % 255)];
 	}
 
 }

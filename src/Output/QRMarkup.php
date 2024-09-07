@@ -7,48 +7,25 @@
  * @copyright    2016 Smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Output;
-
-use function is_string, strip_tags, trim;
 
 /**
  * Abstract for markup types: HTML, SVG, ... XML anyone?
  */
 abstract class QRMarkup extends QROutputAbstract{
+	use CssColorModuleValueTrait;
 
-	/**
-	 * @inheritDoc
-	 */
-	protected function moduleValueIsValid($value):bool{
-		return is_string($value);
-	}
+	public function dump(string|null $file = null):string{
+		$saveToFile = $file !== null;
+		$data       = $this->createMarkup($saveToFile);
 
-	/**
-	 * @inheritDoc
-	 */
-	protected function getModuleValue($value):string{
-		return trim(strip_tags($value), " '\"\r\n\t");
-	}
+		$this->saveToFile($data, $file);
 
-	/**
-	 * @inheritDoc
-	 */
-	protected function getDefaultModuleValue(bool $isDark):string{
-		return $isDark ? $this->options->markupDark : $this->options->markupLight;
-	}
-
-	/**
-	 * @inheritDoc
-	 */
-	public function dump(string $file = null):string{
-		$file       ??= $this->options->cachefile;
-		$saveToFile   = $file !== null;
-
-		$data = $this->createMarkup($saveToFile);
-
-		if($saveToFile){
-			$this->saveToFile($data, $file);
+		// transform to data URI only when not saving to file
+		if(!$saveToFile && $this->options->outputBase64){
+			return $this->toBase64DataURI($data);
 		}
 
 		return $data;
@@ -57,10 +34,13 @@ abstract class QRMarkup extends QROutputAbstract{
 	/**
 	 * returns a string with all css classes for the current element
 	 */
-	abstract protected function getCssClass(int $M_TYPE):string;
+	protected function getCssClass(int $M_TYPE = 0):string{
+		return $this->options->cssClass;
+	}
 
 	/**
-	 *
+	 * returns the fully parsed and rendered markup string for the given input
 	 */
 	abstract protected function createMarkup(bool $saveToFile):string;
+
 }

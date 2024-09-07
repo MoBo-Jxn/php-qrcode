@@ -8,16 +8,17 @@
  * @copyright    2021 Smiley
  * @license      Apache-2.0
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Decoder;
 
 use chillerlan\QRCode\Common\{EccLevel, MaskPattern, Version};
 use chillerlan\QRCode\Data\{QRCodeDataException, QRMatrix};
-use function array_fill, count;
+use function array_fill, array_reverse, count;
 use const PHP_INT_MAX, PHP_INT_SIZE;
 
 /**
- *
+ * Extended QRMatrix to map read data from the Binarizer
  */
 final class BitMatrix extends QRMatrix{
 
@@ -27,42 +28,46 @@ final class BitMatrix extends QRMatrix{
 	 * [data bits, sequence after masking]
 	 */
 	private const DECODE_LOOKUP = [
-		0x00 => 0x5412,
-		0x01 => 0x5125,
-		0x02 => 0x5E7C,
-		0x03 => 0x5B4B,
-		0x04 => 0x45F9,
-		0x05 => 0x40CE,
-		0x06 => 0x4F97,
-		0x07 => 0x4AA0,
-		0x08 => 0x77C4,
-		0x09 => 0x72F3,
-		0x0A => 0x7DAA,
-		0x0B => 0x789D,
-		0x0C => 0x662F,
-		0x0D => 0x6318,
-		0x0E => 0x6C41,
-		0x0F => 0x6976,
-		0x10 => 0x1689,
-		0x11 => 0x13BE,
-		0x12 => 0x1CE7,
-		0x13 => 0x19D0,
-		0x14 => 0x0762,
-		0x15 => 0x0255,
-		0x16 => 0x0D0C,
-		0x17 => 0x083B,
-		0x18 => 0x355F,
-		0x19 => 0x3068,
-		0x1A => 0x3F31,
-		0x1B => 0x3A06,
-		0x1C => 0x24B4,
-		0x1D => 0x2183,
-		0x1E => 0x2EDA,
-		0x1F => 0x2BED,
+		0x5412, // 0101010000010010
+		0x5125, // 0101000100100101
+		0x5E7C, // 0101111001111100
+		0x5B4B, // 0101101101001011
+		0x45F9, // 0100010111111001
+		0x40CE, // 0100000011001110
+		0x4F97, // 0100111110010111
+		0x4AA0, // 0100101010100000
+		0x77C4, // 0111011111000100
+		0x72F3, // 0111001011110011
+		0x7DAA, // 0111110110101010
+		0x789D, // 0111100010011101
+		0x662F, // 0110011000101111
+		0x6318, // 0110001100011000
+		0x6C41, // 0110110001000001
+		0x6976, // 0110100101110110
+		0x1689, // 0001011010001001
+		0x13BE, // 0001001110111110
+		0x1CE7, // 0001110011100111
+		0x19D0, // 0001100111010000
+		0x0762, // 0000011101100010
+		0x0255, // 0000001001010101
+		0x0D0C, // 0000110100001100
+		0x083B, // 0000100000111011
+		0x355F, // 0011010101011111
+		0x3068, // 0011000001101000
+		0x3F31, // 0011111100110001
+		0x3A06, // 0011101000000110
+		0x24B4, // 0010010010110100
+		0x2183, // 0010000110000011
+		0x2EDA, // 0010111011011010
+		0x2BED, // 0010101111101101
 	];
 
-	private const FORMAT_INFO_MASK_QR = 0x5412;
+	private const FORMAT_INFO_MASK_QR = 0x5412; // 0101010000010010
 
+	/**
+	 * This flag has effect only on the copyVersionBit() method.
+	 * Before proceeding with readCodewords() the resetInfo() method should be called.
+	 */
 	private bool $mirror = false;
 
 	/**
@@ -74,64 +79,57 @@ final class BitMatrix extends QRMatrix{
 	}
 
 	/**
-	 * Prepare the parser for a mirrored operation.
-	 * This flag has effect only on the readFormatInformation() and the
-	 * readVersion() methods. Before proceeding with readCodewords() the
-	 * mirror() method should be called.
-	 *
-	 * @param bool $mirror Whether to read version and format information mirrored.
+	 * Resets the current version info in order to attempt another reading
 	 */
-	public function setMirror(bool $mirror):self{
+	public function resetVersionInfo():static{
 		$this->version     = null;
 		$this->eccLevel    = null;
 		$this->maskPattern = null;
-		$this->mirror      = $mirror;
 
 		return $this;
 	}
 
 	/**
-	 * Mirror the bit matrix in order to attempt a second reading.
+	 * Mirror the bit matrix diagonally in order to attempt a second reading.
 	 */
-	public function mirror():self{
+	public function mirrorDiagonal():static{
+		$this->mirror = !$this->mirror;
 
-		for($x = 0; $x < $this->moduleCount; $x++){
-			for($y = $x + 1; $y < $this->moduleCount; $y++){
-				if($this->get($x, $y) !== $this->get($y, $x)){
-					$this->flip($y, $x);
-					$this->flip($x, $y);
-				}
-			}
-		}
-
-		return $this;
+		// mirror vertically
+		$this->matrix = array_reverse($this->matrix);
+		// rotate by 90 degrees clockwise
+		return $this->rotate90();
 	}
 
 	/**
 	 * Reads the bits in the BitMatrix representing the finder pattern in the
 	 * correct order in order to reconstruct the codewords bytes contained within the
-	 * QR Code.
+	 * QR Code. Throws if the exact number of bytes expected is not read.
 	 *
-	 * @return array bytes encoded within the QR Code
-	 * @throws \chillerlan\QRCode\Decoder\QRCodeDecoderException if the exact number of bytes expected is not read
+	 * @return int[]
+	 * @throws \chillerlan\QRCode\Decoder\QRCodeDecoderException
 	 */
 	public function readCodewords():array{
 
 		$this
 			->readFormatInformation()
 			->readVersion()
-			->mask() // reverse the mask pattern
+			->mask($this->maskPattern) // reverse the mask pattern
 		;
 
 		// invoke a fresh matrix with only the function & format patterns to compare against
-		$fp        = (new QRMatrix($this->version, $this->eccLevel, $this->maskPattern))->initFunctionalPatterns();
+		$matrix = (new QRMatrix($this->version, $this->eccLevel))
+			->initFunctionalPatterns()
+			->setFormatInfo($this->maskPattern)
+		;
+
 		$result    = [];
 		$byte      = 0;
 		$bitsRead  = 0;
 		$direction = true;
 
 		// Read columns in pairs, from right to left
-		for($i = $this->moduleCount - 1; $i > 0; $i -= 2){
+		for($i = ($this->moduleCount - 1); $i > 0; $i -= 2){
 
 			// Skip whole column with vertical alignment pattern;
 			// saves time and makes the other code proceed more cleanly
@@ -140,13 +138,13 @@ final class BitMatrix extends QRMatrix{
 			}
 			// Read alternatingly from bottom to top then top to bottom
 			for($count = 0; $count < $this->moduleCount; $count++){
-				$y = $direction ? $this->moduleCount - 1 - $count : $count;
+				$y = ($direction) ? ($this->moduleCount - 1 - $count) : $count;
 
 				for($col = 0; $col < 2; $col++){
-					$x = $i - $col;
+					$x = ($i - $col);
 
 					// Ignore bits covered by the function pattern
-					if($fp->get($x, $y) !== $this::M_NULL){
+					if($matrix->get($x, $y) !== $this::M_NULL){
 						continue;
 					}
 
@@ -172,16 +170,17 @@ final class BitMatrix extends QRMatrix{
 			throw new QRCodeDecoderException('result count differs from total codewords for version');
 		}
 
+		// bytes encoded within the QR Code
 		return $result;
 	}
 
 	/**
 	 * Reads format information from one of its two locations within the QR Code.
+	 * Throws if both format information locations cannot be parsed as the valid encoding of format information.
 	 *
-	 * @throws \chillerlan\QRCode\Decoder\QRCodeDecoderException if both format information locations cannot be parsed as
-	 *                                                           the valid encoding of format information
+	 * @throws \chillerlan\QRCode\Decoder\QRCodeDecoderException
 	 */
-	private function readFormatInformation():self{
+	private function readFormatInformation():static{
 
 		if($this->eccLevel !== null && $this->maskPattern !== null){
 			return $this;
@@ -194,24 +193,24 @@ final class BitMatrix extends QRMatrix{
 			$formatInfoBits1 = $this->copyVersionBit($i, 8, $formatInfoBits1);
 		}
 
-		// .. and skip a bit in the timing pattern ...
+		// ... and skip a bit in the timing pattern ...
 		$formatInfoBits1 = $this->copyVersionBit(7, 8, $formatInfoBits1);
 		$formatInfoBits1 = $this->copyVersionBit(8, 8, $formatInfoBits1);
 		$formatInfoBits1 = $this->copyVersionBit(8, 7, $formatInfoBits1);
-		// .. and skip a bit in the timing pattern ...
+		// ... and skip a bit in the timing pattern ...
 		for($j = 5; $j >= 0; $j--){
 			$formatInfoBits1 = $this->copyVersionBit(8, $j, $formatInfoBits1);
 		}
 
 		// Read the top-right/bottom-left pattern too
 		$formatInfoBits2 = 0;
-		$jMin            = $this->moduleCount - 7;
+		$jMin            = ($this->moduleCount - 7);
 
-		for($j = $this->moduleCount - 1; $j >= $jMin; $j--){
+		for($j = ($this->moduleCount - 1); $j >= $jMin; $j--){
 			$formatInfoBits2 = $this->copyVersionBit(8, $j, $formatInfoBits2);
 		}
 
-		for($i = $this->moduleCount - 8; $i < $this->moduleCount; $i++){
+		for($i = ($this->moduleCount - 8); $i < $this->moduleCount; $i++){
 			$formatInfoBits2 = $this->copyVersionBit($i, 8, $formatInfoBits2);
 		}
 
@@ -222,8 +221,8 @@ final class BitMatrix extends QRMatrix{
 			// Should return null, but, some QR codes apparently do not mask this info.
 			// Try again by actually masking the pattern first.
 			$formatInfo = $this->doDecodeFormatInformation(
-				$formatInfoBits1 ^ $this::FORMAT_INFO_MASK_QR,
-				$formatInfoBits2 ^ $this::FORMAT_INFO_MASK_QR
+				($formatInfoBits1 ^ $this::FORMAT_INFO_MASK_QR),
+				($formatInfoBits2 ^ $this::FORMAT_INFO_MASK_QR),
 			);
 
 			// still nothing???
@@ -239,30 +238,23 @@ final class BitMatrix extends QRMatrix{
 		return $this;
 	}
 
-	/**
-	 *
-	 */
 	private function copyVersionBit(int $i, int $j, int $versionBits):int{
 
 		$bit = $this->mirror
 			? $this->check($j, $i)
 			: $this->check($i, $j);
 
-		return $bit ? ($versionBits << 1) | 0x1 : $versionBits << 1;
+		return ($bit) ? (($versionBits << 1) | 0x1) : ($versionBits << 1);
 	}
 
 	/**
-	 * @param int $maskedFormatInfo1 format info indicator, with mask still applied
-	 * @param int $maskedFormatInfo2 second copy of same info; both are checked at the same time
-	 *                               to establish best match
-	 *
-	 * @return int|null information about the format it specifies, or null if doesn't seem to match any known pattern
+	 * Returns information about the format it specifies, or null if it doesn't seem to match any known pattern
 	 */
-	private function doDecodeFormatInformation(int $maskedFormatInfo1, int $maskedFormatInfo2):?int{
-		// Find the int in FORMAT_INFO_DECODE_LOOKUP with fewest bits differing
+	private function doDecodeFormatInformation(int $maskedFormatInfo1, int $maskedFormatInfo2):int|null{
 		$bestDifference = PHP_INT_MAX;
 		$bestFormatInfo = 0;
 
+		// Find the int in FORMAT_INFO_DECODE_LOOKUP with the fewest bits differing
 		foreach($this::DECODE_LOOKUP as $maskedBits => $dataBits){
 
 			if($maskedFormatInfo1 === $dataBits || $maskedFormatInfo2 === $dataBits){
@@ -297,18 +289,18 @@ final class BitMatrix extends QRMatrix{
 
 	/**
 	 * Reads version information from one of its two locations within the QR Code.
+	 * Throws if both version information locations cannot be parsed as the valid encoding of version information.
 	 *
-	 * @throws \chillerlan\QRCode\Decoder\QRCodeDecoderException if both version information locations cannot be parsed as
-	 *                                                           the valid encoding of version information
+	 * @throws \chillerlan\QRCode\Decoder\QRCodeDecoderException
 	 * @noinspection DuplicatedCode
 	 */
-	private function readVersion():self{
+	private function readVersion():static{
 
 		if($this->version !== null){
 			return $this;
 		}
 
-		$provisionalVersion = ($this->moduleCount - 17) / 4;
+		$provisionalVersion = (($this->moduleCount - 17) / 4);
 
 		// no version info if v < 7
 		if($provisionalVersion < 7){
@@ -319,10 +311,10 @@ final class BitMatrix extends QRMatrix{
 
 		// Read top-right version info: 3 wide by 6 tall
 		$versionBits = 0;
-		$ijMin       = $this->moduleCount - 11;
+		$ijMin       = ($this->moduleCount - 11);
 
 		for($y = 5; $y >= 0; $y--){
-			for($x = $this->moduleCount - 9; $x >= $ijMin; $x--){
+			for($x = ($this->moduleCount - 9); $x >= $ijMin; $x--){
 				$versionBits = $this->copyVersionBit($x, $y, $versionBits);
 			}
 		}
@@ -337,7 +329,7 @@ final class BitMatrix extends QRMatrix{
 		$versionBits = 0;
 
 		for($x = 5; $x >= 0; $x--){
-			for($y = $this->moduleCount - 9; $y >= $ijMin; $y--){
+			for($y = ($this->moduleCount - 9); $y >= $ijMin; $y--){
 				$versionBits = $this->copyVersionBit($x, $y, $versionBits);
 			}
 		}
@@ -352,9 +344,9 @@ final class BitMatrix extends QRMatrix{
 	}
 
 	/**
-	 *
+	 * Decodes the version information from the given bit sequence, returns null if no valid match is found.
 	 */
-	private function decodeVersionInformation(int $versionBits):?Version{
+	private function decodeVersionInformation(int $versionBits):Version|null{
 		$bestDifference = PHP_INT_MAX;
 		$bestVersion    = 0;
 
@@ -369,7 +361,6 @@ final class BitMatrix extends QRMatrix{
 
 			// Otherwise see if this is the closest to a real version info bit string
 			// we have seen so far
-			/** @phan-suppress-next-line PhanTypeMismatchArgumentNullable ($targetVersionPattern is never null here) */
 			$bitsDifference = $this->numBitsDiffering($versionBits, $targetVersionPattern);
 
 			if($bitsDifference < $bestDifference){
@@ -387,31 +378,25 @@ final class BitMatrix extends QRMatrix{
 		return null;
 	}
 
-	/**
-	 *
-	 */
 	private function uRShift(int $a, int $b):int{
 
 		if($b === 0){
 			return $a;
 		}
 
-		return ($a >> $b) & ~((1 << (8 * PHP_INT_SIZE - 1)) >> ($b - 1));
+		return (($a >> $b) & ~((1 << (8 * PHP_INT_SIZE - 1)) >> ($b - 1)));
 	}
 
-	/**
-	 *
-	 */
 	private function numBitsDiffering(int $a, int $b):int{
 		// a now has a 1 bit exactly where its bit differs with b's
 		$a ^= $b;
-		// Offset i holds the number of 1 bits in the binary representation of i
+		// Offset $i holds the number of 1-bits in the binary representation of $i
 		$BITS_SET_IN_HALF_BYTE = [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4];
 		// Count bits set quickly with a series of lookups:
 		$count = 0;
 
 		for($i = 0; $i < 32; $i += 4){
-			$count += $BITS_SET_IN_HALF_BYTE[$this->uRShift($a, $i) & 0x0F];
+			$count += $BITS_SET_IN_HALF_BYTE[($this->uRShift($a, $i) & 0x0F)];
 		}
 
 		return $count;
@@ -421,7 +406,7 @@ final class BitMatrix extends QRMatrix{
 	 * @codeCoverageIgnore
 	 * @throws \chillerlan\QRCode\Data\QRCodeDataException
 	 */
-	public function setQuietZone(int $size = null):self{
+	public function setQuietZone(int|null $quietZoneSize = null):static{
 		throw new QRCodeDataException('not supported');
 	}
 
@@ -429,7 +414,7 @@ final class BitMatrix extends QRMatrix{
 	 * @codeCoverageIgnore
 	 * @throws \chillerlan\QRCode\Data\QRCodeDataException
 	 */
-	public function setLogoSpace(int $width, int $height, int $startX = null, int $startY = null):self{
+	public function setLogoSpace(int $width, int|null $height = null, int|null $startX = null, int|null $startY = null):static{
 		throw new QRCodeDataException('not supported');
 	}
 

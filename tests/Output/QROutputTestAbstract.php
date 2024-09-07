@@ -7,54 +7,47 @@
  * @copyright    2017 Smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCodeTest\Output;
 
-use chillerlan\QRCode\QROptions;
-use chillerlan\QRCode\Common\MaskPattern;
-use chillerlan\QRCode\Data\{Byte, QRData, QRMatrix};
+use chillerlan\QRCodeTest\BuildDirTrait;
+use chillerlan\QRCode\{QRCode, QROptions};
+use chillerlan\QRCode\Data\QRMatrix;
 use chillerlan\QRCode\Output\{QRCodeOutputException, QROutputInterface};
+use chillerlan\Settings\SettingsContainerInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-
-use function file_exists, mkdir;
+use ReflectionObject;
 
 /**
  * Test abstract for the several (built-in) output modules,
  * should also be used to test custom output modules
  */
 abstract class QROutputTestAbstract extends TestCase{
+	use BuildDirTrait;
 
-	/** @var \chillerlan\QRCode\QROptions|\chillerlan\Settings\SettingsContainerInterface */
-	protected QROptions         $options;
-	protected QROutputInterface $outputInterface;
-	protected QRMatrix          $matrix;
-	protected string            $builddir = __DIR__.'/../../.build/output_test';
-	protected string            $FQN;
-	protected string            $type;
+	protected SettingsContainerInterface|QROptions $options;
+	protected QROutputInterface                    $outputInterface;
+	protected QRMatrix                             $matrix;
+
+	protected const buildDir = 'output-test';
 
 	/**
 	 * Attempts to create a directory under /.build and instances several required objects
 	 */
 	protected function setUp():void{
+		$this->createBuildDir($this::buildDir);
 
-		if(!file_exists($this->builddir)){
-			mkdir($this->builddir, 0777, true);
-		}
-
-		$this->options             = new QROptions;
-		$this->options->outputType = $this->type;
-
-		$this->matrix              = (new QRData($this->options, [new Byte('testdata')]))
-			->writeMatrix(new MaskPattern(MaskPattern::PATTERN_010));
-		$this->outputInterface     = new $this->FQN($this->options, $this->matrix);
+		$this->options         = new QROptions;
+		$this->matrix          = (new QRCode($this->options))->addByteSegment('testdata')->getQRMatrix();
+		$this->outputInterface = $this->getOutputInterface($this->options, $this->matrix);
 	}
 
-	/**
-	 * Validate the instance of the interface
-	 */
-	public function testInstance():void{
-		$this::assertInstanceOf(QROutputInterface::class, $this->outputInterface);
-	}
+	abstract protected function getOutputInterface(
+		SettingsContainerInterface|QROptions $options,
+		QRMatrix                             $matrix,
+	):QROutputInterface;
 
 	/**
 	 * Tests if an exception is thrown when trying to write a cache file to an invalid destination
@@ -63,30 +56,40 @@ abstract class QROutputTestAbstract extends TestCase{
 		$this->expectException(QRCodeOutputException::class);
 		$this->expectExceptionMessage('Cannot write data to cache file: /foo/bar.test');
 
-		$this->options->cachefile = '/foo/bar.test';
-		$this->outputInterface = new $this->FQN($this->options, $this->matrix);
-		$this->outputInterface->dump();
+		$this->outputInterface->dump('/foo/bar.test');
 	}
 
 	/**
-	 * covers the module values settings
+	 * @phpstan-return array<string, array{0: mixed, 1: bool}>
 	 */
-	abstract public function testSetModuleValues():void;
+	abstract public static function moduleValueProvider():array;
+
+	#[DataProvider('moduleValueProvider')]
+	public function testValidateModuleValues(mixed $value, bool $expected):void{
+		$this::assertSame($expected, $this->outputInterface::moduleValueIsValid($value));
+	}
 
 	/*
 	 * additional, non-essential, potentially inaccurate coverage tests
 	 */
 
 	/**
+	 * covers the module values settings
+	 */
+	abstract public function testSetModuleValues():void;
+
+	/**
 	 * coverage of the built-in output modules
 	 */
 	public function testRenderToCacheFile():void{
-		$this->options->cachefile   = $this->builddir.'/test.'.$this->type;
-		$this->options->imageBase64 = false;
-		$this->outputInterface      = new $this->FQN($this->options, $this->matrix);
-		$data                       = $this->outputInterface->dump(); // creates the cache file
+		$this->options->outputBase64 = false;
+		$this->outputInterface       = $this->getOutputInterface($this->options, $this->matrix);
+		// create the cache file
+		$name        = (new ReflectionObject($this->outputInterface))->getShortName();
+		$fileSubPath = $this::buildDir.'/test.output.'.$name;
+		$data        = $this->outputInterface->dump($this->getBuildPath($fileSubPath));
 
-		$this::assertSame($data, file_get_contents($this->options->cachefile));
+		$this::assertSame($data, $this->getBuildFileContent($fileSubPath));
 	}
 
 }

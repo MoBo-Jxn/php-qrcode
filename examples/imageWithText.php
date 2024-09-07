@@ -1,6 +1,7 @@
 <?php
 /**
- * example for additional text
+ * GdImage example for displaying additional text under the QR Code
+ *
  * @link https://github.com/chillerlan/php-qrcode/issues/35
  *
  * @created      22.06.2019
@@ -10,9 +11,10 @@
  *
  * @noinspection PhpIllegalPsrClassPathInspection, PhpComposerExtensionStubsInspection
  */
+declare(strict_types=1);
 
 use chillerlan\QRCode\{QRCode, QROptions};
-use chillerlan\QRCode\Output\QRGdImage;
+use chillerlan\QRCode\Output\QRGdImagePNG;
 
 require_once __DIR__.'/../vendor/autoload.php';
 
@@ -20,12 +22,9 @@ require_once __DIR__.'/../vendor/autoload.php';
  * Class definition
  */
 
-class QRImageWithText extends QRGdImage{
+class QRImageWithText extends QRGdImagePNG{
 
-	/**
-	 * @inheritDoc
-	 */
-	public function dump(string $file = null, string $text = null):string{
+	public function dump(string|null $file = null, string|null $text = null):string{
 		// set returnResource to true to skip further processing for now
 		$this->options->returnResource = true;
 
@@ -39,20 +38,15 @@ class QRImageWithText extends QRGdImage{
 
 		$imageData = $this->dumpImage();
 
-		if($file !== null){
-			$this->saveToFile($imageData, $file);
-		}
+		$this->saveToFile($imageData, $file);
 
-		if($this->options->imageBase64){
-			$imageData = $this->base64encode($imageData, 'image/'.$this->options->outputType);
+		if($this->options->outputBase64){
+			$imageData = $this->toBase64DataURI($imageData);
 		}
 
 		return $imageData;
 	}
 
-	/**
-	 * @inheritDoc
-	 */
 	protected function addText(string $text):void{
 		// save the qrcode image
 		$qrcode = $this->image;
@@ -63,14 +57,14 @@ class QRImageWithText extends QRGdImage{
 		$textColor = [50, 50, 50];
 
 		$bgWidth  = $this->length;
-		$bgHeight = $bgWidth + 20; // 20px extra space
+		$bgHeight = ($bgWidth + 20); // 20px extra space
 
 		// create a new image with additional space
 		$this->image = imagecreatetruecolor($bgWidth, $bgHeight);
 		$background  = imagecolorallocate($this->image, ...$textBG);
 
 		// allow transparency
-		if($this->options->imageTransparent && $this->options->outputType !== QRCode::OUTPUT_IMAGE_JPG){
+		if($this->options->imageTransparent){
 			imagecolortransparent($this->image, $background);
 		}
 
@@ -98,22 +92,26 @@ class QRImageWithText extends QRGdImage{
  * Runtime
  */
 
-$options = new QROptions([
-	'version'      => 7,
-	'outputType'   => QRCode::OUTPUT_IMAGE_PNG,
-	'scale'        => 3,
-	'imageBase64'  => false,
-]);
+$options = new QROptions;
+
+$options->version      = 7;
+$options->scale        = 3;
+$options->outputBase64 = false;
+
 
 $qrcode = new QRCode($options);
 $qrcode->addByteSegment('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 
-header('Content-type: image/png');
-
-$qrOutputInterface = new QRImageWithText($options, $qrcode->getMatrix());
+// invoke the custom output interface manually
+$qrOutputInterface = new QRImageWithText($options, $qrcode->getQRMatrix());
 
 // dump the output, with additional text
 // the text could also be supplied via the options, see the svgWithLogo example
-echo $qrOutputInterface->dump(null, 'example text');
+$out = $qrOutputInterface->dump(null, 'example text');
+
+
+header('Content-type: image/png');
+
+echo $out;
 
 exit;

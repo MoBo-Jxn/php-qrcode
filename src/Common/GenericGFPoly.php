@@ -8,11 +8,11 @@
  * @copyright    2021 Smiley
  * @license      Apache-2.0
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Common;
 
 use chillerlan\QRCode\QRCodeException;
-
 use function array_fill, array_slice, array_splice, count;
 
 /**
@@ -26,17 +26,17 @@ use function array_fill, array_slice, array_splice, count;
  */
 final class GenericGFPoly{
 
+	/** @var int[] */
 	private array $coefficients;
 
 	/**
-	 * @param array      $coefficients array coefficients as ints representing elements of GF(size), arranged
-	 *                                 from most significant (highest-power term) coefficient to least significant
-	 * @param int|null   $degree
+	 * @param int[]      $coefficients array coefficients as ints representing elements of GF(size), arranged
+	 *                                 from most significant (highest-power term) coefficient to the least significant
 	 *
 	 * @throws \chillerlan\QRCode\QRCodeException if argument is null or empty, or if leading coefficient is 0 and this
 	 *                                            is not a constant polynomial (that is, it is not the monomial "0")
 	 */
-	public function __construct(array $coefficients, int $degree = null){
+	public function __construct(array $coefficients, int|null $degree = null){
 		$degree ??= 0;
 
 		if(empty($coefficients)){
@@ -56,23 +56,23 @@ final class GenericGFPoly{
 			$firstNonZero++;
 		}
 
-		if($firstNonZero === $coefficientsLength){
-			$this->coefficients = [0];
-		}
-		else{
-			$this->coefficients = array_fill(0, $coefficientsLength - $firstNonZero + $degree, 0);
+		$this->coefficients = [0];
 
-			for($i = 0; $i < $coefficientsLength - $firstNonZero; $i++){
-				$this->coefficients[$i] = $coefficients[$i + $firstNonZero];
+		if($firstNonZero !== $coefficientsLength){
+			$this->coefficients = array_fill(0, ($coefficientsLength - $firstNonZero + $degree), 0);
+
+			for($i = 0; $i < ($coefficientsLength - $firstNonZero); $i++){
+				$this->coefficients[$i] = $coefficients[($i + $firstNonZero)];
 			}
 		}
+
 	}
 
 	/**
 	 * @return int $coefficient of x^degree term in this polynomial
 	 */
 	public function getCoefficient(int $degree):int{
-		return $this->coefficients[count($this->coefficients) - 1 - $degree];
+		return $this->coefficients[(count($this->coefficients) - 1 - $degree)];
 	}
 
 	/**
@@ -86,7 +86,7 @@ final class GenericGFPoly{
 	 * @return int $degree of this polynomial
 	 */
 	public function getDegree():int{
-		return count($this->coefficients) - 1;
+		return (count($this->coefficients) - 1);
 	}
 
 	/**
@@ -110,26 +110,23 @@ final class GenericGFPoly{
 
 		foreach($this->coefficients as $c){
 			// if $a === 1 just the sum of the coefficients
-			$result = GF256::addOrSubtract(($a === 1 ? $result : GF256::multiply($a, $result)), $c);
+			$result = GF256::addOrSubtract((($a === 1) ? $result : GF256::multiply($a, $result)), $c);
 		}
 
 		return $result;
 	}
 
-	/**
-	 *
-	 */
 	public function multiply(GenericGFPoly $other):self{
 
 		if($this->isZero() || $other->isZero()){
 			return new self([0]);
 		}
 
-		$product = array_fill(0, count($this->coefficients) + count($other->coefficients) - 1, 0);
+		$product = array_fill(0, (count($this->coefficients) + count($other->coefficients) - 1), 0);
 
 		foreach($this->coefficients as $i => $aCoeff){
 			foreach($other->coefficients as $j => $bCoeff){
-				$product[$i + $j] ^= GF256::multiply($aCoeff, $bCoeff);
+				$product[($i + $j)] ^= GF256::multiply($aCoeff, $bCoeff);
 			}
 		}
 
@@ -154,7 +151,7 @@ final class GenericGFPoly{
 
 		while($remainder->getDegree() >= $other->getDegree() && !$remainder->isZero()){
 			$scale     = GF256::multiply($remainder->getCoefficient($remainder->getDegree()), $inverseDenominatorLeadingTerm);
-			$diff      = $remainder->getDegree() - $other->getDegree();
+			$diff      = ($remainder->getDegree() - $other->getDegree());
 			$quotient  = $quotient->addOrSubtract(GF256::buildMonomial($diff, $scale));
 			$remainder = $remainder->addOrSubtract($other->multiplyByMonomial($diff, $scale));
 		}
@@ -163,9 +160,6 @@ final class GenericGFPoly{
 
 	}
 
-	/**
-	 *
-	 */
 	public function multiplyInt(int $scalar):self{
 
 		if($scalar === 0){
@@ -198,7 +192,7 @@ final class GenericGFPoly{
 			return new self([0]);
 		}
 
-		$product = array_fill(0, count($this->coefficients) + $degree, 0);
+		$product = array_fill(0, (count($this->coefficients) + $degree), 0);
 
 		foreach($this->coefficients as $i => $c){
 			$product[$i] = GF256::multiply($c, $coefficient);
@@ -207,16 +201,13 @@ final class GenericGFPoly{
 		return new self($product);
 	}
 
-	/**
-	 *
-	 */
 	public function mod(GenericGFPoly $other):self{
 
-		if(count($this->coefficients) - count($other->coefficients) < 0){
+		if((count($this->coefficients) - count($other->coefficients)) < 0){
 			return $this;
 		}
 
-		$ratio = GF256::log($this->coefficients[0]) - GF256::log($other->coefficients[0]);
+		$ratio = (GF256::log($this->coefficients[0]) - GF256::log($other->coefficients[0]));
 
 		foreach($other->coefficients as $i => $c){
 			$this->coefficients[$i] ^= GF256::exp(GF256::log($c) + $ratio);
@@ -225,9 +216,6 @@ final class GenericGFPoly{
 		return (new self($this->coefficients))->mod($other);
 	}
 
-	/**
-	 *
-	 */
 	public function addOrSubtract(GenericGFPoly $other):self{
 
 		if($this->isZero()){
@@ -248,14 +236,14 @@ final class GenericGFPoly{
 		}
 
 		$sumDiff    = array_fill(0, count($largerCoefficients), 0);
-		$lengthDiff = count($largerCoefficients) - count($smallerCoefficients);
+		$lengthDiff = (count($largerCoefficients) - count($smallerCoefficients));
 		// Copy high-order terms only found in higher-degree polynomial's coefficients
 		array_splice($sumDiff, 0, $lengthDiff, array_slice($largerCoefficients, 0, $lengthDiff));
 
 		$countLargerCoefficients = count($largerCoefficients);
 
 		for($i = $lengthDiff; $i < $countLargerCoefficients; $i++){
-			$sumDiff[$i] = GF256::addOrSubtract($smallerCoefficients[$i - $lengthDiff], $largerCoefficients[$i]);
+			$sumDiff[$i] = GF256::addOrSubtract($smallerCoefficients[($i - $lengthDiff)], $largerCoefficients[$i]);
 		}
 
 		return new self($sumDiff);

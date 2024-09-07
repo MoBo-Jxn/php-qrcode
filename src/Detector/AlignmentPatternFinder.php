@@ -8,6 +8,7 @@
  * @copyright    2021 Smiley
  * @license      Apache-2.0
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Detector;
 
@@ -42,9 +43,9 @@ final class AlignmentPatternFinder{
 	 * @param float                                $moduleSize estimated module size so far
 	 */
 	public function __construct(BitMatrix $matrix, float $moduleSize){
-		$this->matrix     = $matrix;
-		$this->moduleSize = $moduleSize;
-		$this->possibleCenters      = [];
+		$this->matrix          = $matrix;
+		$this->moduleSize      = $moduleSize;
+		$this->possibleCenters = [];
 	}
 
 	/**
@@ -58,16 +59,17 @@ final class AlignmentPatternFinder{
 	 *
 	 * @return \chillerlan\QRCode\Detector\AlignmentPattern|null
 	 */
-	public function find(int $startX, int $startY, int $width, int $height):?AlignmentPattern{
-		$maxJ       = $startX + $width;
-		$middleI    = $startY + ($height / 2);
+	public function find(int $startX, int $startY, int $width, int $height):AlignmentPattern|null{
+		$maxJ       = ($startX + $width);
+		$middleI    = ($startY + ($height / 2));
+		/** @var int[] $stateCount */
 		$stateCount = [];
 
 		// We are looking for black/white/black modules in 1:1:1 ratio;
 		// this tracks the number of black/white/black modules seen so far
 		for($iGen = 0; $iGen < $height; $iGen++){
 			// Search from middle outwards
-			$i             = (int)($middleI + (($iGen & 0x01) === 0 ? ($iGen + 1) / 2 : -(($iGen + 1) / 2)));
+			$i             = (int)($middleI + ((($iGen & 0x01) === 0) ? ($iGen + 1) / 2 : -(($iGen + 1) / 2)));
 			$stateCount[0] = 0;
 			$stateCount[1] = 0;
 			$stateCount[2] = 0;
@@ -150,11 +152,10 @@ final class AlignmentPatternFinder{
 	 *         used by alignment patterns to be considered a match
 	 */
 	private function foundPatternCross(array $stateCount):bool{
-		$moduleSize  = $this->moduleSize;
-		$maxVariance = $moduleSize / 2.0;
+		$maxVariance = ($this->moduleSize / 2.0);
 
 		for($i = 0; $i < 3; $i++){
-			if(abs($moduleSize - $stateCount[$i]) >= $maxVariance){
+			if(abs($this->moduleSize - $stateCount[$i]) >= $maxVariance){
 				return false;
 			}
 		}
@@ -164,7 +165,7 @@ final class AlignmentPatternFinder{
 
 	/**
 	 * This is called when a horizontal scan finds a possible alignment pattern. It will
-	 * cross check with a vertical scan, and if successful, will see if this pattern had been
+	 * cross-check with a vertical scan, and if successful, will see if this pattern had been
 	 * found on a previous horizontal scan. If so, we consider it confirmed and conclude we have
 	 * found the alignment pattern.
 	 *
@@ -174,13 +175,13 @@ final class AlignmentPatternFinder{
 	 *
 	 * @return \chillerlan\QRCode\Detector\AlignmentPattern|null if we have found the same pattern twice, or null if not
 	 */
-	private function handlePossibleCenter(array $stateCount, int $i, int $j):?AlignmentPattern{
-		$stateCountTotal = $stateCount[0] + $stateCount[1] + $stateCount[2];
+	private function handlePossibleCenter(array $stateCount, int $i, int $j):AlignmentPattern|null{
+		$stateCountTotal = ($stateCount[0] + $stateCount[1] + $stateCount[2]);
 		$centerJ         = $this->centerFromEnd($stateCount, $j);
-		$centerI         = $this->crossCheckVertical($i, (int)$centerJ, 2 * $stateCount[1], $stateCountTotal);
+		$centerI         = $this->crossCheckVertical($i, (int)$centerJ, (2 * $stateCount[1]), $stateCountTotal);
 
 		if($centerI !== null){
-			$estimatedModuleSize = (float)($stateCount[0] + $stateCount[1] + $stateCount[2]) / 3.0;
+			$estimatedModuleSize = (($stateCount[0] + $stateCount[1] + $stateCount[2]) / 3.0);
 
 			foreach($this->possibleCenters as $center){
 				// Look for about the same center and module size:
@@ -202,12 +203,9 @@ final class AlignmentPatternFinder{
 	 * figures the location of the center of this black/white/black run.
 	 *
 	 * @param int[] $stateCount
-	 * @param int   $end
-	 *
-	 * @return float
 	 */
 	private function centerFromEnd(array $stateCount, int $end):float{
-		return (float)(($end - $stateCount[2]) - $stateCount[1] / 2.0);
+		return (float)(($end - $stateCount[2]) - $stateCount[1] / 2);
 	}
 
 	/**
@@ -215,16 +213,15 @@ final class AlignmentPatternFinder{
 	 * "cross-checks" by scanning down vertically through the center of the possible
 	 * alignment pattern to see if the same proportion is detected.
 	 *
-	 * @param int $startI   row where an alignment pattern was detected
-	 * @param int $centerJ  center of the section that appears to cross an alignment pattern
-	 * @param int $maxCount maximum reasonable number of modules that should be
-	 *                      observed in any reading state, based on the results of the horizontal scan
-	 * @param int $originalStateCountTotal
+	 * $startI   row where an alignment pattern was detected
+	 * $centerJ  center of the section that appears to cross an alignment pattern
+	 * $maxCount maximum reasonable number of modules that should be
+	 *           observed in any reading state, based on the results of the horizontal scan
 	 *
-	 * @return float|null vertical center of alignment pattern, or null if not found
+	 * returns vertical center of alignment pattern, or null if not found
 	 */
-	private function crossCheckVertical(int $startI, int $centerJ, int $maxCount, int $originalStateCountTotal):?float{
-		$maxI          = $this->matrix->size();
+	private function crossCheckVertical(int $startI, int $centerJ, int $maxCount, int $originalStateCountTotal):float|null{
+		$maxI          = $this->matrix->getSize();
 		$stateCount    = [];
 		$stateCount[0] = 0;
 		$stateCount[1] = 0;
@@ -251,13 +248,13 @@ final class AlignmentPatternFinder{
 		}
 
 		// Now also count down from center
-		$i = $startI + 1;
+		$i = ($startI + 1);
 		while($i < $maxI && $this->matrix->check($centerJ, $i) && $stateCount[1] <= $maxCount){
 			$stateCount[1]++;
 			$i++;
 		}
 
-		if($i == $maxI || $stateCount[1] > $maxCount){
+		if($i === $maxI || $stateCount[1] > $maxCount){
 			return null;
 		}
 
@@ -270,7 +267,8 @@ final class AlignmentPatternFinder{
 			return null;
 		}
 
-		if(5 * abs(($stateCount[0] + $stateCount[1] + $stateCount[2]) - $originalStateCountTotal) >= 2 * $originalStateCountTotal){
+		// phpcs:ignore
+		if((5 * abs(($stateCount[0] + $stateCount[1] + $stateCount[2]) - $originalStateCountTotal)) >= (2 * $originalStateCountTotal)){
 			return null;
 		}
 

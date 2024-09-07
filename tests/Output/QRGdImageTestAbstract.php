@@ -6,24 +6,23 @@
  * @author       Smiley <smiley@chillerlan.net>
  * @copyright    2017 Smiley
  * @license      MIT
+ *
+ * @noinspection PhpComposerExtensionStubsInspection
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCodeTest\Output;
 
 use chillerlan\QRCode\Data\QRMatrix;
-use chillerlan\QRCode\Output\QRGdImage;
-use const PHP_MAJOR_VERSION;
+use GdImage;
+use function extension_loaded;
 
 /**
  * Tests the QRGdImage output module
  */
 abstract class QRGdImageTestAbstract extends QROutputTestAbstract{
+	use RGBArrayModuleValueProviderTrait;
 
-	protected string $FQN  = QRGdImage::class;
-
-	/**
-	 * @inheritDoc
-	 */
 	protected function setUp():void{
 
 		if(!extension_loaded('gd')){
@@ -33,36 +32,33 @@ abstract class QRGdImageTestAbstract extends QROutputTestAbstract{
 		parent::setUp();
 	}
 
-	/**
-	 * @inheritDoc
-	 */
 	public function testSetModuleValues():void{
 
 		$this->options->moduleValues = [
 			// data
-			QRMatrix::M_DATA | QRMatrix::IS_DARK => [0, 0, 0],
-			QRMatrix::M_DATA                     => [255, 255, 255],
+			QRMatrix::M_DATA_DARK => [0, 0, 0],
+			QRMatrix::M_DATA      => [255, 255, 255],
 		];
 
-		$this->outputInterface = new $this->FQN($this->options, $this->matrix);
+		$this->outputInterface = $this->getOutputInterface($this->options, $this->matrix);
 		$this->outputInterface->dump();
 
+		/** @phpstan-ignore-next-line */
 		$this::assertTrue(true); // tricking the code coverage
 	}
 
-	/**
-	 *
-	 */
 	public function testOutputGetResource():void{
 		$this->options->returnResource = true;
-		$this->outputInterface         = new $this->FQN($this->options, $this->matrix);
+		$this->outputInterface         = $this->getOutputInterface($this->options, $this->matrix);
 
-		$actual = $this->outputInterface->dump();
+		$this::assertInstanceOf(GdImage::class, $this->outputInterface->dump());
+	}
 
-		/** @noinspection PhpFullyQualifiedNameUsageInspection */
-		PHP_MAJOR_VERSION >= 8
-			? $this::assertInstanceOf(\GdImage::class, $actual)
-			: $this::assertIsResource($actual);
+	public function testBase64MimeType():void{
+		$this->options->outputBase64 = true;
+		$this->outputInterface       = $this->getOutputInterface($this->options, $this->matrix);
+
+		$this::assertStringContainsString($this->outputInterface::MIME_TYPE, $this->outputInterface->dump());
 	}
 
 }

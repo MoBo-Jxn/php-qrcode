@@ -8,6 +8,7 @@
  * @copyright    2021 Smiley
  * @license      Apache-2.0
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Detector;
 
@@ -24,18 +25,12 @@ final class FinderPattern extends ResultPoint{
 
 	private int $count;
 
-	/**
-	 *
-	 */
-	public function __construct(float $posX, float $posY, float $estimatedModuleSize, int $count = null){
+	public function __construct(float $posX, float $posY, float $estimatedModuleSize, int|null $count = null){
 		parent::__construct($posX, $posY, $estimatedModuleSize);
 
-		$this->count = $count ?? 1;
+		$this->count = ($count ?? 1);
 	}
 
-	/**
-	 *
-	 */
 	public function getCount():int{
 		return $this->count;
 	}
@@ -61,30 +56,24 @@ final class FinderPattern extends ResultPoint{
 	 * with a new estimate. It returns a new FinderPattern containing a weighted average
 	 * based on count.
 	 */
-	public function combineEstimate(float $i, float $j, float $newModuleSize):self{
-		$combinedCount = $this->count + 1;
+	public function combineEstimate(float $i, float $j, float $newModuleSize):static{
+		$combinedCount = ($this->count + 1);
 
 		return new self(
 			($this->count * $this->x + $j) / $combinedCount,
 			($this->count * $this->y + $i) / $combinedCount,
 			($this->count * $this->estimatedModuleSize + $newModuleSize) / $combinedCount,
-			$combinedCount
+			$combinedCount,
 		);
 	}
 
-	/**
-	 *
-	 */
 	private static function squaredDistance(float $aX, float $aY, float $bX, float $bY):float{
-		$xDiff = $aX - $bX;
-		$yDiff = $aY - $bY;
+		$xDiff = ($aX - $bX);
+		$yDiff = ($aY - $bY);
 
-		return $xDiff * $xDiff + $yDiff * $yDiff;
+		return ($xDiff * $xDiff + $yDiff * $yDiff);
 	}
 
-	/**
-	 *
-	 */
 	public static function distance(float $aX, float $aY, float $bX, float $bY):float{
 		return sqrt(self::squaredDistance($aX, $aY, $bX, $bY));
 	}

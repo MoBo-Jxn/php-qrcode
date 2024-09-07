@@ -7,11 +7,15 @@
  * @copyright    2021 smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCodeTest;
 
-use chillerlan\QRCode\Decoder\IMagickLuminanceSource;
-use chillerlan\QRCode\QRCode;
+use chillerlan\QRCode\QROptions;
+use chillerlan\QRCode\Common\{IMagickLuminanceSource, LuminanceSourceInterface};
+use chillerlan\QRCode\Decoder\Decoder;
+use chillerlan\Settings\SettingsContainerInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use function extension_loaded;
 use const PHP_OS_FAMILY;
 
@@ -19,8 +23,6 @@ use const PHP_OS_FAMILY;
  * Tests the Imagick based reader
  */
 final class QRCodeReaderImagickTest extends QRCodeReaderTestAbstract{
-
-	protected string $FQN = IMagickLuminanceSource::class;
 
 	protected function setUp():void{
 
@@ -33,7 +35,17 @@ final class QRCodeReaderImagickTest extends QRCodeReaderTestAbstract{
 		$this->options->readerUseImagickIfAvailable = true;
 	}
 
-	public function vectorQRCodeProvider():array{
+	protected function getLuminanceSourceFromFile(
+		string                               $file,
+		SettingsContainerInterface|QROptions $options,
+	):LuminanceSourceInterface{
+		return IMagickLuminanceSource::fromFile($file, $options);
+	}
+
+	/**
+	 * @phpstan-return array<string, array{0: string, 1: string}>
+	 */
+	public static function vectorQRCodeProvider():array{
 		return [
 			// SVG convert only works on windows (Warning: Option --export-png= is deprecated)
 			'SVG' => ['vector_sample.svg', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'],
@@ -43,17 +55,16 @@ final class QRCodeReaderImagickTest extends QRCodeReaderTestAbstract{
 		];
 	}
 
-	/**
-	 * @dataProvider vectorQRCodeProvider
-	 */
+	#[DataProvider('vectorQRCodeProvider')]
 	public function testReadVectorFormats(string $img, string $expected):void{
 
 		if(PHP_OS_FAMILY === 'Linux'){
 			$this::markTestSkipped('avoid imagick conversion errors (ha ha)');
 		}
 
-		$this::assertSame($expected, (string)(new QRCode)
-			->readFromSource(IMagickLuminanceSource::fromFile(__DIR__.'/samples/'.$img, $this->options)));
+		$luminanceSource = $this->getLuminanceSourceFromFile($this::samplesDir.$img, $this->options);
+
+		$this::assertSame($expected, (string)(new Decoder)->decode($luminanceSource));
 	}
 
 }

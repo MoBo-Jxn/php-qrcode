@@ -1,0 +1,166 @@
+# https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions
+# https://github.com/sebastianbergmann/phpunit/blob/main/.github/workflows/ci.yaml
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+name: "Continuous Integration"
+
+env:
+  PHP_EXTENSIONS: fileinfo, gd, imagick, json, mbstring
+  PHP_INI_VALUES: memory_limit=-1, error_reporting=-1, display_errors=On
+
+jobs:
+
+  static-code-analysis:
+    name: "Static Code Analysis"
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        php-version:
+          - "8.2"
+          - "8.3"
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      - name: "Install PHP"
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          ini-values: ${{ env.PHP_INI_VALUES }}
+          coverage: none
+
+      - name: "Install dependencies with composer"
+        uses: ramsey/composer-install@v3
+
+      - name: "Run PHPStan"
+        run: php vendor/bin/phpstan
+
+      - name: "Run PHP_CodeSniffer"
+        run: php vendor/bin/phpcs
+
+
+  tests:
+    name: "Unit Tests"
+    needs: static-code-analysis
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        php-version:
+          - "8.2"
+          - "8.3"
+          - "8.4"
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      - name: "Install PHP with extensions"
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          ini-values: ${{ env.PHP_INI_VALUES }}
+          coverage: pcov
+          tools: pecl
+
+      - name: "Install dependencies with composer"
+        uses: ramsey/composer-install@v3
+
+      - name: "Run tests with PHPUnit"
+        run: php vendor/bin/phpunit --colors=always --configuration=phpunit.xml.dist
+
+      - name: "Send code coverage report to Codecov.io"
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: .build/coverage/clover.xml
+
+      - name: "Send code coverage report to Codacy"
+        uses: codacy/codacy-coverage-reporter-action@v1
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          coverage-reports: .build/coverage/clover.xml
+
+
+  build-docs:
+    name: "Build and publish API docs"
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout sources"
+        uses: actions/checkout@v4
+
+      - name: "Install PHP"
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          ini-values: ${{ env.PHP_INI_VALUES }}
+          coverage: none
+          tools: phpDocumentor
+
+      - name: "Build API docs"
+        run: phpdoc --config=phpdoc.xml.dist
+
+      - name: "Publish API docs to branch gh-pages"
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: .build/phpdocs
+          clean: true
+
+
+  build-manual:
+    name: "Build and publish user manual"
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout sources"
+        uses: actions/checkout@v4
+
+      - name: "Install PHP"
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          ini-values: ${{ env.PHP_INI_VALUES }}
+          coverage: none
+
+      - name: "Install Sphinx"
+        run: pip install sphinx myst-parser sphinx-rtd-theme
+
+      - name: "Install dependencies with composer"
+        uses: ramsey/composer-install@v3
+
+      - name: "Build QROptions doc"
+        run: php docs/qroptions-doc.php
+
+      - name: "Build manual"
+        run: |
+          cd docs
+          make html
+
+      - name: "Publish user manual to branch readthedocs"
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: readthedocs
+          folder: .build/sphinx/html
+          clean: true

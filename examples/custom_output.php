@@ -1,5 +1,7 @@
 <?php
 /**
+ * custom output example
+ *
  * @created      24.12.2017
  * @author       Smiley <smiley@chillerlan.net>
  * @copyright    2017 Smiley
@@ -7,9 +9,9 @@
  *
  * @noinspection PhpIllegalPsrClassPathInspection
  */
+declare(strict_types=1);
 
 use chillerlan\QRCode\{QRCode, QROptions};
-use chillerlan\QRCode\Common\EccLevel;
 use chillerlan\QRCode\Output\QROutputAbstract;
 
 require_once __DIR__.'/../vendor/autoload.php';
@@ -20,34 +22,22 @@ require_once __DIR__.'/../vendor/autoload.php';
 
 class MyCustomOutput extends QROutputAbstract{
 
-	/**
-	 * @inheritDoc
-	 */
-	protected function moduleValueIsValid($value):bool{
-		// TODO: Implement moduleValueIsValid() method. (abstract)
+	public static function moduleValueIsValid(mixed $value):bool{
+		// TODO: Implement moduleValueIsValid() method. (interface)
 		return false;
 	}
 
-	/**
-	 * @inheritDoc
-	 */
-	protected function getModuleValue($value){
-		// TODO: Implement getModuleValue() method. (abstract)
+	protected function prepareModuleValue(mixed $value):mixed{
+		// TODO: Implement prepareModuleValue() method. (abstract)
 		return null;
 	}
 
-	/**
-	 * @inheritDoc
-	 */
-	protected function getDefaultModuleValue(bool $isDark){
+	protected function getDefaultModuleValue(bool $isDark):mixed{
 		// TODO: Implement getDefaultModuleValue() method. (abstract)
 		return null;
 	}
 
-	/**
-	 * @inheritDoc
-	 */
-	public function dump(string $file = null):string{
+	public function dump(string|null $file = null):string{
 		$output = '';
 
 		for($y = 0; $y < $this->moduleCount; $y++){
@@ -68,29 +58,26 @@ class MyCustomOutput extends QROutputAbstract{
  * Runtime
  */
 
-$data = 'https://www.youtube.com/watch?v=DLzxrzFCyOs&t=43s';
+$options = new QROptions;
+
+$options->version  = 5;
+$options->eccLevel = 'L';
+
+$data = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
 // invoke the QROutputInterface manually
-$options = new QROptions([
-	'version'      => 5,
-	'eccLevel'     => EccLevel::L,
-]);
+// please note that an QROutputInterface invoked this way might become unusable after calling dump().
+// the clean way would be to extend the QRCode class to ensure a new QROutputInterface instance on each call to render().
 
 $qrcode = new QRCode($options);
 $qrcode->addByteSegment($data);
 
-$qrOutputInterface = new MyCustomOutput($options, $qrcode->getMatrix());
+$qrOutputInterface = new MyCustomOutput($options, $qrcode->getQRMatrix());
 
 var_dump($qrOutputInterface->dump());
 
-
 // or just via the options
-$options = new QROptions([
-	'version'         => 5,
-	'eccLevel'        => EccLevel::L,
-	'outputType'      => QRCode::OUTPUT_CUSTOM,
-	'outputInterface' => MyCustomOutput::class,
-]);
+$options->outputInterface = MyCustomOutput::class;
 
 var_dump((new QRCode($options))->render($data));
 

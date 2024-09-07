@@ -1,5 +1,7 @@
 <?php
 /**
+ * SVG with logo example
+ *
  * @created      05.03.2022
  * @author       smiley <smiley@chillerlan.net>
  * @copyright    2022 smiley
@@ -7,6 +9,7 @@
  *
  * @noinspection PhpComposerExtensionStubsInspection
  */
+declare(strict_types=1);
 
 use chillerlan\QRCode\{QRCode, QRCodeException, QROptions};
 use chillerlan\QRCode\Common\EccLevel;
@@ -24,9 +27,6 @@ require_once __DIR__.'/../vendor/autoload.php';
  */
 class QRSvgWithLogo extends QRMarkupSVG{
 
-	/**
-	 * @inheritDoc
-	 */
 	protected function paths():string{
 		$size = (int)ceil($this->moduleCount * $this->options->svgLogoScale);
 
@@ -39,6 +39,11 @@ class QRSvgWithLogo extends QRMarkupSVG{
 		return $svg;
 	}
 
+	protected function path(string $path, int $M_TYPE):string{
+		// omit the "fill" and "opacity" attributes on the path element
+		return sprintf('<path class="%s" d="%s"/>', $this->getCssClass($M_TYPE), $path);
+	}
+
 	/**
 	 * returns a <g> element that contains the SVG logo and positions it properly within the QR Code
 	 *
@@ -49,11 +54,11 @@ class QRSvgWithLogo extends QRMarkupSVG{
 		// @todo: customize the <g> element to your liking (css class, style...)
 		return sprintf(
 			'%5$s<g transform="translate(%1$s %1$s) scale(%2$s)" class="%3$s">%5$s	%4$s%5$s</g>',
-			($this->moduleCount - ($this->moduleCount * $this->options->svgLogoScale)) / 2,
+			(($this->moduleCount - ($this->moduleCount * $this->options->svgLogoScale)) / 2),
 			$this->options->svgLogoScale,
 			$this->options->svgLogoCssClass,
 			file_get_contents($this->options->svgLogo),
-			$this->options->eol
+			$this->options->eol,
 		);
 	}
 
@@ -62,6 +67,10 @@ class QRSvgWithLogo extends QRMarkupSVG{
 
 /**
  * augment the QROptions class
+ *
+ * @property string $svgLogo
+ * @property float  $svgLogoScale
+ * @property string $svgLogoCssClass
  */
 class SVGWithLogoOptions extends QROptions{
 	// path to svg logo
@@ -95,37 +104,29 @@ class SVGWithLogoOptions extends QROptions{
  * Runtime
  */
 
-$options = new SVGWithLogoOptions([
-	// SVG logo options (see extended class below)
-	'svgLogo'             => __DIR__.'/github.svg', // logo from: https://github.com/simple-icons/simple-icons
-	'svgLogoScale'        => 0.25,
-	'svgLogoCssClass'     => 'dark',
-	// QROptions
-	'version'             => 5,
-	'outputType'          => QRCode::OUTPUT_CUSTOM,
-	'outputInterface'     => QRSvgWithLogo::class,
-	'imageBase64'         => false,
-	// ECC level H is necessary when using logos
-	'eccLevel'            => EccLevel::H,
-	'addQuietzone'        => true,
-	// if set to true, the light modules won't be rendered
-	'imageTransparent'    => false,
-	// empty the default value to remove the fill* attributes from the <path> elements
-	'markupDark'          => '',
-	'markupLight'         => '',
-	// draw the modules as circles isntead of squares
-	'drawCircularModules' => true,
-	'circleRadius'        => 0.45,
-	// connect paths
-	'svgConnectPaths'     => true,
-	// keep modules of thhese types as square
-	'keepAsSquare'        => [
-		QRMatrix::M_FINDER|QRMatrix::IS_DARK,
-		QRMatrix::M_FINDER_DOT,
-		QRMatrix::M_ALIGNMENT|QRMatrix::IS_DARK,
-	],
-	// https://developer.mozilla.org/en-US/docs/Web/SVG/Element/linearGradient
-	'svgDefs'             => '
+$options = new SVGWithLogoOptions;
+
+// SVG logo options (see extended class)
+$options->svgLogo             = __DIR__.'/github.svg'; // logo from: https://github.com/simple-icons/simple-icons
+$options->svgLogoScale        = 0.25;
+$options->svgLogoCssClass     = 'dark';
+// QROptions
+$options->version             = 5;
+$options->outputInterface     = QRSvgWithLogo::class;
+$options->outputBase64        = false;
+$options->eccLevel            = EccLevel::H; // ECC level H is necessary when using logos
+$options->addQuietzone        = true;
+$options->drawLightModules    = true;
+$options->connectPaths        = true;
+$options->drawCircularModules = true;
+$options->circleRadius        = 0.45;
+$options->keepAsSquare        = [
+	QRMatrix::M_FINDER_DARK,
+	QRMatrix::M_FINDER_DOT,
+	QRMatrix::M_ALIGNMENT_DARK,
+];
+// https://developer.mozilla.org/en-US/docs/Web/SVG/Element/linearGradient
+$options->svgDefs = '
 	<linearGradient id="gradient" x1="100%" y2="100%">
 		<stop stop-color="#D70071" offset="0"/>
 		<stop stop-color="#9C4E97" offset="0.5"/>
@@ -134,22 +135,22 @@ $options = new SVGWithLogoOptions([
 	<style><![CDATA[
 		.dark{fill: url(#gradient);}
 		.light{fill: #eaeaea;}
-	]]></style>',
-]);
-
-$qrcode = (new QRCode($options))->render('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+	]]></style>';
 
 
-if(php_sapi_name() !== 'cli'){
+$out = (new QRCode($options))->render('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+
+if(PHP_SAPI !== 'cli'){
 	header('Content-type: image/svg+xml');
 
 	if(extension_loaded('zlib')){
 		header('Vary: Accept-Encoding');
 		header('Content-Encoding: gzip');
-		$qrcode = gzencode($qrcode, 9);
+		$out = gzencode($out, 9);
 	}
 }
 
-echo $qrcode;
+echo $out;
 
 exit;

@@ -7,6 +7,7 @@
  * @copyright    2022 smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 use chillerlan\QRCode\{QRCode, QROptions};
 
@@ -15,11 +16,16 @@ require_once __DIR__.'/../vendor/autoload.php';
 // please excuse the IDE yelling https://youtrack.jetbrains.com/issue/WI-66549
 $options = new QROptions;
 $options->readerUseImagickIfAvailable = false;
-$options->readerGrayscale = true;
-$options->readerIncreaseContrast = true;
+$options->readerGrayscale             = true;
+$options->readerIncreaseContrast      = true;
 
-$result = (new QRCode($options))->readFromFile(__DIR__.'/../.github/images/example_image.png');
+try{
+	$result = (new QRCode($options))->readFromFile(__DIR__.'/../.github/images/example_image.png');
 
-var_dump($result);
+	var_dump($result);
+}
+catch(Throwable $e){
+	echo $e->getMessage();
+}
 
 exit;

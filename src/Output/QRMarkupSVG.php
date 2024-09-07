@@ -7,72 +7,116 @@
  * @copyright    2022 smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Output;
 
-use chillerlan\QRCode\Data\QRMatrix;
-use function array_chunk, implode, sprintf;
+use function array_chunk, implode, is_string, preg_match, sprintf, trim;
 
 /**
  * SVG output
  *
  * @see https://github.com/codemasher/php-qrcode/pull/5
- * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Element/svg
+ * @see https://developer.mozilla.org/en-US/docs/Web/SVG
  * @see https://www.sarasoueidan.com/demos/interactive-svg-coordinate-system/
- * @see http://apex.infogridpacific.com/SVG/svg-tutorial-contents.html
+ * @see https://lea.verou.me/blog/2019/05/utility-convert-svg-path-to-all-relative-or-all-absolute-commands/
+ * @see https://codepen.io/leaverou/full/RmwzKv
+ * @see https://jakearchibald.github.io/svgomg/
+ * @see https://web.archive.org/web/20200220211445/http://apex.infogridpacific.com/SVG/svg-tutorial-contents.html
  */
 class QRMarkupSVG extends QRMarkup{
 
+	final public const MIME_TYPE = 'image/svg+xml';
+
 	/**
+	 * @todo: XSS proof
+	 *
+	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/fill
 	 * @inheritDoc
 	 */
+	public static function moduleValueIsValid(mixed $value):bool{
+
+		if(!is_string($value)){
+			return false;
+		}
+
+		$value = trim($value);
+
+		// url(...)
+		if(preg_match('~^url\([-/#a-z\d]+\)$~i', $value)){
+			return true;
+		}
+
+		// otherwise check for standard css notation
+		return parent::moduleValueIsValid($value);
+	}
+
+	protected function getOutputDimensions():array{
+		return [$this->moduleCount, $this->moduleCount];
+	}
+
+	protected function getCssClass(int $M_TYPE = 0):string{
+		return implode(' ', [
+			'qr-'.($this::LAYERNAMES[$M_TYPE] ?? $M_TYPE),
+			$this->matrix->isDark($M_TYPE) ? 'dark' : 'light',
+			$this->options->cssClass,
+		]);
+	}
+
 	protected function createMarkup(bool $saveToFile):string{
 		$svg = $this->header();
 
 		if(!empty($this->options->svgDefs)){
-			$svg .= sprintf('<defs>%1$s%2$s</defs>%2$s', $this->options->svgDefs, $this->options->eol);
+			$svg .= sprintf('<defs>%1$s%2$s</defs>%2$s', $this->options->svgDefs, $this->eol);
 		}
 
 		$svg .= $this->paths();
 
 		// close svg
-		$svg .= sprintf('%1$s</svg>%1$s', $this->options->eol);
-
-		// transform to data URI only when not saving to file
-		if(!$saveToFile && $this->options->imageBase64){
-			$svg = $this->base64encode($svg, 'image/svg+xml');
-		}
+		$svg .= sprintf('%1$s</svg>%1$s', $this->eol);
 
 		return $svg;
 	}
 
 	/**
+	 * returns the value for the SVG viewBox attribute
+	 *
+	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/viewBox
+	 * @see https://css-tricks.com/scale-svg/#article-header-id-3
+	 */
+	protected function getViewBox():string{
+		[$width, $height] = $this->getOutputDimensions();
+
+		return sprintf('0 0 %s %s', $width, $height);
+	}
+
+	/**
 	 * returns the <svg> header with the given options parsed
+	 *
+	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Element/svg
 	 */
 	protected function header():string{
-		$width  = $this->options->svgWidth !== null ? sprintf(' width="%s"', $this->options->svgWidth) : '';
-		$height = $this->options->svgHeight !== null ? sprintf(' height="%s"', $this->options->svgHeight) : '';
 
-		/** @noinspection HtmlUnknownAttribute */
-		return sprintf(
-			'<?xml version="1.0" encoding="UTF-8"?>%6$s'.
-			'<svg xmlns="http://www.w3.org/2000/svg" class="qr-svg %1$s" viewBox="0 0 %2$s %2$s" preserveAspectRatio="%3$s"%4$s%5$s>%6$s',
+		$header = sprintf(
+			'<svg xmlns="http://www.w3.org/2000/svg" class="qr-svg %1$s" viewBox="%2$s" preserveAspectRatio="%3$s">%4$s',
 			$this->options->cssClass,
-			$this->options->svgViewBoxSize ?? $this->moduleCount,
+			$this->getViewBox(),
 			$this->options->svgPreserveAspectRatio,
-			$width,
-			$height,
-			$this->options->eol
+			$this->eol,
 		);
+
+		if($this->options->svgAddXmlHeader){
+			$header = sprintf('<?xml version="1.0" encoding="UTF-8"?>%s%s', $this->eol, $header);
+		}
+
+		return $header;
 	}
 
 	/**
 	 * returns one or more SVG <path> elements
-	 *
-	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Element/path
 	 */
 	protected function paths():string{
-		$paths = $this->collectModules(fn(int $x, int $y, int $M_TYPE):string => $this->module($x, $y, $M_TYPE));
+		$paths = $this->collectModules($this->module(...));
 		$svg   = [];
 
 		// create the path elements
@@ -85,38 +129,35 @@ class QRMarkupSVG extends QRMarkup{
 				$chonks[] = implode(' ', $chunk);
 			}
 
-			$path = implode($this->options->eol, $chonks);
+			$path = implode($this->eol, $chonks);
 
 			if(empty($path)){
 				continue;
 			}
 
-			// ignore non-existent module values
-			$format = !isset($this->moduleValues[$M_TYPE]) || empty($this->moduleValues[$M_TYPE])
-				? '<path class="%1$s" d="%2$s"/>'
-				: '<path class="%1$s" fill="%3$s" fill-opacity="%4$s" d="%2$s"/>';
-
-			$svg[] = sprintf(
-				$format,
-				$this->getCssClass($M_TYPE),
-				$path,
-				$this->moduleValues[$M_TYPE] ?? '',
-				$this->options->svgOpacity)
-			;
+			$svg[] = $this->path($path, $M_TYPE);
 		}
 
-		return implode($this->options->eol, $svg);
+		return implode($this->eol, $svg);
 	}
 
 	/**
-	 * @inheritDoc
+	 * renders and returns a single <path> element
+	 *
+	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Element/path
 	 */
-	protected function getCssClass(int $M_TYPE):string{
-		return implode(' ', [
-			'qr-'.$M_TYPE,
-			($M_TYPE & QRMatrix::IS_DARK) === QRMatrix::IS_DARK ? 'dark' : 'light',
-			$this->options->cssClass,
-		]);
+	protected function path(string $path, int $M_TYPE):string{
+
+		if($this->options->svgUseFillAttributes){
+			return sprintf(
+				'<path class="%s" fill="%s" d="%s"/>',
+				$this->getCssClass($M_TYPE),
+				$this->getModuleValue($M_TYPE),
+				$path,
+			);
+		}
+
+		return sprintf('<path class="%s" d="%s"/>', $this->getCssClass($M_TYPE), $path);
 	}
 
 	/**
@@ -126,24 +167,21 @@ class QRMarkupSVG extends QRMarkup{
 	 */
 	protected function module(int $x, int $y, int $M_TYPE):string{
 
-		if($this->options->imageTransparent && !$this->matrix->check($x, $y)){
+		if(!$this->drawLightModules && !$this->matrix->isDark($M_TYPE)){
 			return '';
 		}
 
-		if($this->options->drawCircularModules && $this->matrix->checkTypeNotIn($x, $y, $this->options->keepAsSquare)){
-			$r = $this->options->circleRadius;
+		if($this->drawCircularModules && !$this->matrix->checkTypeIn($x, $y, $this->keepAsSquare)){
+			// string interpolation: ugly and fast
+			$ix = ($x + 0.5 - $this->circleRadius);
+			$iy = ($y + 0.5);
 
-			return sprintf(
-				'M%1$s %2$s a%3$s %3$s 0 1 0 %4$s 0 a%3$s %3$s 0 1 0 -%4$s 0Z',
-				($x + 0.5 - $r),
-				($y + 0.5),
-				$r,
-				($r * 2)
-			);
-
+			// phpcs:ignore
+			return "M$ix $iy a$this->circleRadius $this->circleRadius 0 1 0 $this->circleDiameter 0 a$this->circleRadius $this->circleRadius 0 1 0 -$this->circleDiameter 0Z";
 		}
 
-		return sprintf('M%1$s %2$s h1 v1 h-1Z', $x, $y);
+		// phpcs:ignore
+		return "M$x $y h1 v1 h-1Z";
 	}
 
 }

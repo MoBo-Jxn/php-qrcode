@@ -7,27 +7,23 @@
  * @copyright    2020 smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCodeTest\Output;
 
-use FPDF;
-use chillerlan\QRCode\QRCode;
+use chillerlan\QRCode\QROptions;
 use chillerlan\QRCode\Data\QRMatrix;
-use chillerlan\QRCode\Output\QRFpdf;
-
+use chillerlan\QRCode\Output\{QRFpdf, QROutputInterface};
+use chillerlan\Settings\SettingsContainerInterface;
+use FPDF;
 use function class_exists;
 
 /**
  * Tests the QRFpdf output module
  */
 final class QRFpdfTest extends QROutputTestAbstract{
+	use RGBArrayModuleValueProviderTrait;
 
-	protected string $FQN  = QRFpdf::class;
-	protected string $type = QRCode::OUTPUT_FPDF;
-
-	/**
-	 * @inheritDoc
-	 */
 	protected function setUp():void{
 
 		if(!class_exists(FPDF::class)){
@@ -37,26 +33,31 @@ final class QRFpdfTest extends QROutputTestAbstract{
 		parent::setUp();
 	}
 
-	/**
-	 * @inheritDoc
-	 */
+	protected function getOutputInterface(
+		SettingsContainerInterface|QROptions $options,
+		QRMatrix                             $matrix,
+	):QROutputInterface{
+		return new QRFpdf($options, $matrix);
+	}
+
 	public function testSetModuleValues():void{
 
 		$this->options->moduleValues = [
 			// data
-			QRMatrix::M_DATA | QRMatrix::IS_DARK => [0, 0, 0],
-			QRMatrix::M_DATA                     => [255, 255, 255],
+			QRMatrix::M_DATA_DARK => [0, 0, 0],
+			QRMatrix::M_DATA      => [255, 255, 255],
 		];
 
-		$this->outputInterface = new $this->FQN($this->options, $this->matrix);
+		$this->outputInterface = $this->getOutputInterface($this->options, $this->matrix);
 		$this->outputInterface->dump();
 
+		/** @phpstan-ignore-next-line */
 		$this::assertTrue(true); // tricking the code coverage
 	}
 
 	public function testOutputGetResource():void{
 		$this->options->returnResource = true;
-		$this->outputInterface         = new $this->FQN($this->options, $this->matrix);
+		$this->outputInterface         = $this->getOutputInterface($this->options, $this->matrix);
 
 		$this::assertInstanceOf(FPDF::class, $this->outputInterface->dump());
 	}

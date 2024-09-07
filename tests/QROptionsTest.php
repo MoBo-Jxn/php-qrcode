@@ -9,10 +9,13 @@
  *
  * @noinspection PhpUnusedLocalVariableInspection
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCodeTest;
 
-use chillerlan\QRCode\{QRCode, QRCodeException, QROptions};
+use chillerlan\QRCode\{QRCodeException, QROptions};
+use chillerlan\QRCode\Common\{EccLevel, Version};
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -23,20 +26,19 @@ final class QROptionsTest extends TestCase{
 	/**
 	 * @return int[][]
 	 */
-	public function VersionProvider():array{
+	public static function VersionProvider():array{
 		return [
 			'values > 40 should be clamped to 40'        => [42, 40],
 			'values < 1 should be clamped to 1'          => [-42, 1],
 			'values in between shold not be touched'     => [21, 21],
-			'value -1 should be treated as is (default)' => [QRCode::VERSION_AUTO, -1],
+			'value -1 should be treated as is (default)' => [Version::AUTO, -1],
 		];
 	}
 
 	/**
 	 * Tests the $version clamping
-	 *
-	 * @dataProvider VersionProvider
 	 */
+	#[DataProvider('VersionProvider')]
 	public function testVersionClamp(int $version, int $expected):void{
 		$o = new QROptions(['version' => $version]);
 
@@ -46,7 +48,7 @@ final class QROptionsTest extends TestCase{
 	/**
 	 * @return int[][]
 	 */
-	public function VersionMinMaxProvider():array{
+	public static function VersionMinMaxProvider():array{
 		return [
 			'normal clamp'         => [5, 10, 5, 10],
 			'exceeding values'     => [-42, 42, 1, 40],
@@ -57,9 +59,8 @@ final class QROptionsTest extends TestCase{
 
 	/**
 	 * Tests the $versionMin/$versionMax clamping
-	 *
-	 * @dataProvider VersionMinMaxProvider
 	 */
+	#[DataProvider('VersionMinMaxProvider')]
 	public function testVersionMinMaxClamp(int $versionMin, int $versionMax, int $expectedMin, int $expectedMax):void{
 		$o = new QROptions(['versionMin' => $versionMin, 'versionMax' => $versionMax]);
 
@@ -68,41 +69,42 @@ final class QROptionsTest extends TestCase{
 	}
 
 	/**
-	 * @return int[][]
+	 * Tests setting the ECC level from string or int
 	 */
-	public function MaskPatternProvider():array{
-		return [
-			'exceed max'   => [42, 7,],
-			'exceed min'   => [-42, 0],
-			'default (-1)' => [QRCode::MASK_PATTERN_AUTO, -1],
-		];
+	public function testSetEccLevel():void{
+		$o = new QROptions(['eccLevel' => EccLevel::H]);
+
+		$this::assertSame(EccLevel::H, $o->eccLevel);
+		/** @phpstan-ignore-next-line */
+		$o->eccLevel = 'q';
+
+		$this::assertSame(EccLevel::Q, $o->eccLevel);
 	}
 
 	/**
-	 * Tests the $maskPattern clamping
-	 *
-	 * @dataProvider MaskPatternProvider
+	 * Tests if an exception is thrown when attempting to set an invalid ECC level integer
 	 */
-	public function testMaskPatternClamp(int $maskPattern, int $expected):void{
-		$o = new QROptions(['maskPattern' => $maskPattern]);
-
-		$this::assertSame($expected, $o->maskPattern);
-	}
-
-	/**
-	 * Tests if an exception is thrown on an incorrect ECC level
-	 */
-	public function testInvalidEccLevelException():void{
+	public function testSetEccLevelFromIntException():void{
 		$this->expectException(QRCodeException::class);
-		$this->expectExceptionMessage('Invalid error correct level: 42');
+		$this->expectExceptionMessage('Invalid ECC level: "42"');
 
-		$o = new QROptions(['eccLevel' => 42]);
+		new QROptions(['eccLevel' => 42]);
+	}
+
+	/**
+	 * Tests if an exception is thrown when attempting to set an invalid ECC level string
+	 */
+	public function testSetEccLevelFromStringException():void{
+		$this->expectException(QRCodeException::class);
+		$this->expectExceptionMessage('Invalid ECC level: "FOO"');
+
+		new QROptions(['eccLevel' => 'foo']);
 	}
 
 	/**
 	 * @return int[][][]
 	 */
-	public function RGBProvider():array{
+	public static function RGBProvider():array{
 		return [
 			'exceeding values' => [[-1, 0, 999], [0, 0 ,255]],
 			'too few values'   => [[1, 2], [255, 255, 255]],
@@ -111,30 +113,9 @@ final class QROptionsTest extends TestCase{
 	}
 
 	/**
-	 * Tests clamping of the RGB values for $imageTransparencyBG
-	 *
-	 * @dataProvider RGBProvider
-	 */
-	public function testClampRGBValues(array $rgb, array $expected):void{
-		$o = new QROptions(['imageTransparencyBG' => $rgb]);
-
-		$this::assertSame($expected, $o->imageTransparencyBG);
-	}
-
-	/**
-	 * Tests if an exception is thrown when a non-numeric RGB value was encoutered
-	 */
-	public function testInvalidRGBValueException():void{
-		$this->expectException(QRCodeException::class);
-		$this->expectExceptionMessage('Invalid RGB value.');
-
-		$o = new QROptions(['imageTransparencyBG' => ['r', 'g', 'b']]);
-	}
-
-	/**
 	 * @return int[][]
 	 */
-	public function logoSpaceValueProvider():array{
+	public static function logoSpaceValueProvider():array{
 		return [
 			'negative' => [ -1,   0],
 			'zero'     => [  0,   0],
@@ -146,9 +127,8 @@ final class QROptionsTest extends TestCase{
 
 	/**
 	 * Tests the clamping (between 0 and 177) of the logo space values
-	 *
-	 * @dataProvider logoSpaceValueProvider
 	 */
+	#[DataProvider('logoSpaceValueProvider')]
 	public function testClampLogoSpaceValue(int $value, int $expected):void{
 		$o = new QROptions;
 
@@ -181,7 +161,7 @@ final class QROptionsTest extends TestCase{
 	/**
 	 * @return float[][]
 	 */
-	public function circleRadiusProvider():array{
+	public static function circleRadiusProvider():array{
 		return [
 			[0.0, 0.1],
 			[0.5, 0.5],
@@ -190,8 +170,9 @@ final class QROptionsTest extends TestCase{
 	}
 
 	/**
-	 * @dataProvider circleRadiusProvider
+	 * Tests clamping of the circle radius
 	 */
+	#[DataProvider('circleRadiusProvider')]
 	public function testClampCircleRadius(float $value, float $expected):void{
 		$o = new QROptions(['circleRadius' => $value]);
 

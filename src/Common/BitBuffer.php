@@ -7,6 +7,7 @@
  * @copyright    2015 Smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Common;
 
@@ -43,10 +44,10 @@ final class BitBuffer{
 	/**
 	 * BitBuffer constructor.
 	 *
-	 * @param int[]|null $bytes
+	 * @param int[] $bytes
 	 */
-	public function __construct(array $bytes = null){
-		$this->buffer = $bytes ?? [];
+	public function __construct(array $bytes = []){
+		$this->buffer = $bytes;
 		$this->length = count($this->buffer);
 	}
 
@@ -90,16 +91,20 @@ final class BitBuffer{
 
 	/**
 	 * returns the buffer content
+	 *
+	 * to debug: `array_map(fn($v) => sprintf('%08b', $v), $bitBuffer->getBuffer())`
+	 *
+	 * @return int[]
 	 */
 	public function getBuffer():array{
 		return $this->buffer;
 	}
 
 	/**
-	 * @return int number of bits that can be read successfully
+	 * Returns the number of bits that can be read successfully
 	 */
 	public function available():int{
-		return 8 * ($this->length - $this->bytesRead) - $this->bitsRead;
+		return ((8 * ($this->length - $this->bytesRead)) - $this->bitsRead);
 	}
 
 	/**
@@ -112,7 +117,7 @@ final class BitBuffer{
 	 */
 	public function read(int $numBits):int{
 
-		if($numBits < 1 || $numBits > 32 || $numBits > $this->available()){
+		if($numBits < 1 || $numBits > $this->available()){
 			throw new QRCodeException('invalid $numBits: '.$numBits);
 		}
 
@@ -120,15 +125,15 @@ final class BitBuffer{
 
 		// First, read remainder from current byte
 		if($this->bitsRead > 0){
-			$bitsLeft       = 8 - $this->bitsRead;
+			$bitsLeft       = (8 - $this->bitsRead);
 			$toRead         = min($numBits, $bitsLeft);
-			$bitsToNotRead  = $bitsLeft - $toRead;
-			$mask           = (0xff >> (8 - $toRead)) << $bitsToNotRead;
-			$result         = ($this->buffer[$this->bytesRead] & $mask) >> $bitsToNotRead;
+			$bitsToNotRead  = ($bitsLeft - $toRead);
+			$mask           = ((0xff >> (8 - $toRead)) << $bitsToNotRead);
+			$result         = (($this->buffer[$this->bytesRead] & $mask) >> $bitsToNotRead);
 			$numBits        -= $toRead;
 			$this->bitsRead += $toRead;
 
-			if($this->bitsRead == 8){
+			if($this->bitsRead === 8){
 				$this->bitsRead = 0;
 				$this->bytesRead++;
 			}
@@ -138,21 +143,41 @@ final class BitBuffer{
 		if($numBits > 0){
 
 			while($numBits >= 8){
-				$result = ($result << 8) | ($this->buffer[$this->bytesRead] & 0xff);
+				$result = (($result << 8) | ($this->buffer[$this->bytesRead] & 0xff));
 				$this->bytesRead++;
 				$numBits -= 8;
 			}
 
 			// Finally read a partial byte
 			if($numBits > 0){
-				$bitsToNotRead  = 8 - $numBits;
-				$mask           = (0xff >> $bitsToNotRead) << $bitsToNotRead;
-				$result         = ($result << $numBits) | (($this->buffer[$this->bytesRead] & $mask) >> $bitsToNotRead);
+				$bitsToNotRead  = (8 - $numBits);
+				$mask           = ((0xff >> $bitsToNotRead) << $bitsToNotRead);
+				$result         = (($result << $numBits) | (($this->buffer[$this->bytesRead] & $mask) >> $bitsToNotRead));
 				$this->bitsRead += $numBits;
 			}
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Clears the buffer and resets the stats
+	 */
+	public function clear():self{
+		$this->buffer = [];
+		$this->length = 0;
+
+		return $this->rewind();
+	}
+
+	/**
+	 * Resets the read-counters
+	 */
+	public function rewind():self{
+		$this->bytesRead = 0;
+		$this->bitsRead  = 0;
+
+		return $this;
 	}
 
 }

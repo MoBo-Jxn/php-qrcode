@@ -8,13 +8,14 @@
  * @copyright    2021 Smiley
  * @license      Apache-2.0
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Common;
 
-use chillerlan\QRCode\Data\QRData;
 use chillerlan\QRCode\QRCodeException;
+use chillerlan\QRCode\Data\QRMatrix;
 use Closure;
-use function abs, array_search, count, min;
+use function abs, array_column, array_search, intdiv, min;
 
 /**
  * ISO/IEC 18004:2000 Section 8.8.1
@@ -24,6 +25,13 @@ use function abs, array_search, count, min;
  * @see https://github.com/zxing/zxing/blob/e9e2bd280bcaeabd59d0f955798384fe6c018a6c/core/src/main/java/com/google/zxing/qrcode/encoder/MaskUtil.java
  */
 final class MaskPattern{
+
+	/**
+	 * @see \chillerlan\QRCode\QROptionsTrait::$maskPattern
+	 *
+	 * @var int
+	 */
+	public const AUTO = -1;
 
 	public const PATTERN_000 = 0b000;
 	public const PATTERN_001 = 0b001;
@@ -48,6 +56,16 @@ final class MaskPattern{
 		self::PATTERN_111,
 	];
 
+	/*
+	 * Penalty scores
+	 *
+	 * ISO/IEC 18004:2000 Section 8.8.1 - Table 24
+	 */
+	private const PENALTY_N1 = 3;
+	private const PENALTY_N2 = 3;
+	private const PENALTY_N3 = 40;
+	private const PENALTY_N4 = 10;
+
 	/**
 	 * The current mask pattern value (0-7)
 	 */
@@ -60,7 +78,7 @@ final class MaskPattern{
 	 */
 	public function __construct(int $maskPattern){
 
-		if((0b111 & $maskPattern) !== $maskPattern){
+		if(($maskPattern & 0b111) !== $maskPattern){
 			throw new QRCodeException('invalid mask pattern');
 		}
 
@@ -77,13 +95,8 @@ final class MaskPattern{
 	/**
 	 * Returns a closure that applies the mask for the chosen mask pattern.
 	 *
-	 * Encapsulates data masks for the data bits in a QR code, per ISO 18004:2006 6.8. Implementations
-	 * of this class can un-mask a raw BitMatrix. For simplicity, they will unmask the entire BitMatrix,
-	 * including areas used for finder patterns, timing patterns, etc. These areas should be unused
-	 * after the point they are unmasked anyway.
-	 *
-	 * Note that the diagram in section 6.8.1 is misleading since it indicates that i is column position
-	 * and j is row position. In fact, as the text says, i is row position and j is column position.
+	 * Note that the diagram in section 6.8.1 is misleading since it indicates that $i is column position
+	 * and $j is row position. In fact, as the text says, $i is row position and $j is column position.
 	 *
 	 * @see https://www.thonky.com/qr-code-tutorial/mask-patterns
 	 * @see https://github.com/zxing/zxing/blob/e9e2bd280bcaeabd59d0f955798384fe6c018a6c/core/src/main/java/com/google/zxing/qrcode/decoder/DataMask.java#L32-L117
@@ -95,25 +108,27 @@ final class MaskPattern{
 			self::PATTERN_001 => fn(int $x, int $y):bool => ($y % 2) === 0,
 			self::PATTERN_010 => fn(int $x, int $y):bool => ($x % 3) === 0,
 			self::PATTERN_011 => fn(int $x, int $y):bool => (($x + $y) % 3) === 0,
-			self::PATTERN_100 => fn(int $x, int $y):bool => (((int)($y / 2) + (int)($x / 3)) % 2) === 0,
-			self::PATTERN_101 => fn(int $x, int $y):bool => ($x * $y) % 6 === 0, // ((($x * $y) % 2) + (($x * $y) % 3)) === 0,
-			self::PATTERN_110 => fn(int $x, int $y):bool => (($x * $y) % 6) < 3, // (((($x * $y) % 2) + (($x * $y) % 3)) % 2) === 0,
-			self::PATTERN_111 => fn(int $x, int $y):bool => (($x + $y + (($x * $y) % 3)) % 2) === 0, // (((($x * $y) % 3) + (($x + $y) % 2)) % 2) === 0,
+			self::PATTERN_100 => fn(int $x, int $y):bool => ((intdiv($y, 2) + intdiv($x, 3)) % 2) === 0,
+			self::PATTERN_101 => fn(int $x, int $y):bool => (($x * $y) % 6) === 0,
+			self::PATTERN_110 => fn(int $x, int $y):bool => (($x * $y) % 6) < 3,
+			self::PATTERN_111 => fn(int $x, int $y):bool => (($x + $y + (($x * $y) % 3)) % 2) === 0,
 		][$this->maskPattern];
 	}
 
 	/**
 	 * Evaluates the matrix of the given data interface and returns a new mask pattern instance for the best result
 	 */
-	public static function getBestPattern(QRData $dataInterface):self{
+	public static function getBestPattern(QRMatrix $QRMatrix):self{
 		$penalties = [];
+		$size      = $QRMatrix->getSize();
 
 		foreach(self::PATTERNS as $pattern){
-			$matrix  = $dataInterface->writeMatrix(new self($pattern))->matrix(true);
+			$mp      = new self($pattern);
+			$matrix  = (clone $QRMatrix)->setFormatInfo($mp)->mask($mp)->getMatrix(true);
 			$penalty = 0;
 
 			for($level = 1; $level <= 4; $level++){
-				$penalty += self::{'testRule'.$level}($matrix, count($matrix), count($matrix[0]));
+				$penalty += self::{'testRule'.$level}($matrix, $size, $size);
 			}
 
 			$penalties[$pattern] = (int)$penalty;
@@ -125,42 +140,51 @@ final class MaskPattern{
 	/**
 	 * Apply mask penalty rule 1 and return the penalty. Find repetitive cells with the same color and
 	 * give penalty to them. Example: 00000 or 11111.
+	 *
+	 * @param bool[][] $matrix
 	 */
 	public static function testRule1(array $matrix, int $height, int $width):int{
-		return self::applyRule1($matrix, $height, $width, true) + self::applyRule1($matrix, $height, $width, false);
+		$penalty = 0;
+
+		// horizontal
+		foreach($matrix as $row){
+			$penalty += self::applyRule1($row);
+		}
+
+		// vertical
+		for($x = 0; $x < $width; $x++){
+			$penalty += self::applyRule1(array_column($matrix, $x));
+		}
+
+		return $penalty;
 	}
 
 	/**
-	 *
+	 * @param bool[] $rc
 	 */
-	private static function applyRule1(array $matrix, int $height, int $width, bool $isHorizontal):int{
-		$penalty = 0;
-		$iLimit  = $isHorizontal ? $height : $width;
-		$jLimit  = $isHorizontal ? $width : $height;
+	private static function applyRule1(array $rc):int{
+		$penalty         = 0;
+		$numSameBitCells = 0;
+		$prevBit         = null;
 
-		for($i = 0; $i < $iLimit; $i++){
-			$numSameBitCells = 0;
-			$prevBit         = -1;
+		foreach($rc as $val){
 
-			for($j = 0; $j < $jLimit; $j++){
-				$bit = $isHorizontal ? $matrix[$i][$j] : $matrix[$j][$i];
-
-				if($bit === $prevBit){
-					$numSameBitCells++;
-				}
-				else{
-
-					if($numSameBitCells >= 5){
-						$penalty += 3 + ($numSameBitCells - 5);
-					}
-
-					$numSameBitCells = 1;  // Include the cell itself.
-					$prevBit         = $bit;
-				}
+			if($val === $prevBit){
+				$numSameBitCells++;
 			}
-			if($numSameBitCells >= 5){
-				$penalty += 3 + ($numSameBitCells - 5);
+			else{
+
+				if($numSameBitCells >= 5){
+					$penalty += (self::PENALTY_N1 + $numSameBitCells - 5);
+				}
+
+				$numSameBitCells = 1;  // Include the cell itself.
+				$prevBit         = $val;
 			}
+		}
+
+		if($numSameBitCells >= 5){
+			$penalty += (self::PENALTY_N1 + $numSameBitCells - 5);
 		}
 
 		return $penalty;
@@ -170,39 +194,43 @@ final class MaskPattern{
 	 * Apply mask penalty rule 2 and return the penalty. Find 2x2 blocks with the same color and give
 	 * penalty to them. This is actually equivalent to the spec's rule, which is to find MxN blocks and give a
 	 * penalty proportional to (M-1)x(N-1), because this is the number of 2x2 blocks inside such a block.
+	 *
+	 * @param bool[][] $matrix
 	 */
 	public static function testRule2(array $matrix, int $height, int $width):int{
 		$penalty = 0;
 
 		foreach($matrix as $y => $row){
 
-			if($y > $height - 2){
+			if($y > ($height - 2)){
 				break;
 			}
 
 			foreach($row as $x => $val){
 
-				if($x > $width - 2){
+				if($x > ($width - 2)){
 					break;
 				}
 
 				if(
-					$val === $row[$x + 1]
-					&& $val === $matrix[$y + 1][$x]
-					&& $val === $matrix[$y + 1][$x + 1]
+					   $val === $row[($x + 1)]
+					&& $val === $matrix[($y + 1)][$x]
+					&& $val === $matrix[($y + 1)][($x + 1)]
 				){
 					$penalty++;
 				}
 			}
 		}
 
-		return 3 * $penalty;
+		return (self::PENALTY_N2 * $penalty);
 	}
 
 	/**
 	 * Apply mask penalty rule 3 and return the penalty. Find consecutive runs of 1:1:3:1:1:4
 	 * starting with black, or 4:1:1:3:1:1 starting with white, and give penalty to them.  If we
 	 * find patterns like 000010111010000, we give penalty once.
+	 *
+	 * @param bool[][] $matrix
 	 */
 	public static function testRule3(array $matrix, int $height, int $width):int{
 		$penalties = 0;
@@ -211,34 +239,34 @@ final class MaskPattern{
 			foreach($row as $x => $val){
 
 				if(
-					$x + 6 < $width
+					($x + 6) < $width
 					&&  $val
-					&& !$row[$x + 1]
-					&&  $row[$x + 2]
-					&&  $row[$x + 3]
-					&&  $row[$x + 4]
-					&& !$row[$x + 5]
-					&&  $row[$x + 6]
+					&& !$row[($x + 1)]
+					&&  $row[($x + 2)]
+					&&  $row[($x + 3)]
+					&&  $row[($x + 4)]
+					&& !$row[($x + 5)]
+					&&  $row[($x + 6)]
 					&& (
-						   self::isWhiteHorizontal($row, $width, $x - 4, $x)
-						|| self::isWhiteHorizontal($row, $width, $x + 7, $x + 11)
+						   self::isWhiteHorizontal($row, $width, ($x - 4), $x)
+						|| self::isWhiteHorizontal($row, $width, ($x + 7), ($x + 11))
 					)
 				){
 					$penalties++;
 				}
 
 				if(
-					$y + 6 < $height
+					($y + 6) < $height
 					&&  $val
-					&& !$matrix[$y + 1][$x]
-					&&  $matrix[$y + 2][$x]
-					&&  $matrix[$y + 3][$x]
-					&&  $matrix[$y + 4][$x]
-					&& !$matrix[$y + 5][$x]
-					&&  $matrix[$y + 6][$x]
+					&& !$matrix[($y + 1)][$x]
+					&&  $matrix[($y + 2)][$x]
+					&&  $matrix[($y + 3)][$x]
+					&&  $matrix[($y + 4)][$x]
+					&& !$matrix[($y + 5)][$x]
+					&&  $matrix[($y + 6)][$x]
 					&& (
-						   self::isWhiteVertical($matrix, $height, $x, $y - 4, $y)
-						|| self::isWhiteVertical($matrix, $height, $x, $y + 7, $y + 11)
+						   self::isWhiteVertical($matrix, $height, $x, ($y - 4), $y)
+						|| self::isWhiteVertical($matrix, $height, $x, ($y + 7), ($y + 11))
 					)
 				){
 					$penalties++;
@@ -247,11 +275,11 @@ final class MaskPattern{
 			}
 		}
 
-		return $penalties * 40;
+		return ($penalties * self::PENALTY_N3);
 	}
 
 	/**
-	 *
+	 * @param bool[] $row
 	 */
 	private static function isWhiteHorizontal(array $row, int $width, int $from, int $to):bool{
 
@@ -269,7 +297,7 @@ final class MaskPattern{
 	}
 
 	/**
-	 *
+	 * @param bool[][] $matrix
 	 */
 	private static function isWhiteVertical(array $matrix, int $height, int $x, int $from, int $to):bool{
 
@@ -278,7 +306,7 @@ final class MaskPattern{
 		}
 
 		for($y = $from; $y < $to; $y++){
-			if($matrix[$y][$x]){
+			if($matrix[$y][$x] === true){
 				return false;
 			}
 		}
@@ -289,20 +317,22 @@ final class MaskPattern{
 	/**
 	 * Apply mask penalty rule 4 and return the penalty. Calculate the ratio of dark cells and give
 	 * penalty if the ratio is far from 50%. It gives 10 penalty for 5% distance.
+	 *
+	 * @param bool[][] $matrix
 	 */
 	public static function testRule4(array $matrix, int $height, int $width):int{
 		$darkCells  = 0;
-		$totalCells = $height * $width;
+		$totalCells = ($height * $width);
 
 		foreach($matrix as $row){
 			foreach($row as $val){
-				if($val){
+				if($val === true){
 					$darkCells++;
 				}
 			}
 		}
 
-		return (int)(abs($darkCells * 2 - $totalCells) * 10 / $totalCells) * 10;
+		return (intdiv((abs($darkCells * 2 - $totalCells) * 10), $totalCells) * self::PENALTY_N4);
 	}
 
 }

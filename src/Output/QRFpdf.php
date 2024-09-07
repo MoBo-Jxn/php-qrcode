@@ -8,14 +8,16 @@
  *
  * @see https://github.com/chillerlan/php-qrcode/pull/49
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode\Output;
 
+use chillerlan\QRCode\QROptions;
 use chillerlan\QRCode\Data\QRMatrix;
 use chillerlan\Settings\SettingsContainerInterface;
 use FPDF;
 
-use function array_values, class_exists, count, is_array;
+use function class_exists;
 
 /**
  * QRFpdf output module (requires fpdf)
@@ -24,19 +26,27 @@ use function array_values, class_exists, count, is_array;
  * @see http://www.fpdf.org/
  */
 class QRFpdf extends QROutputAbstract{
+	use RGBArrayModuleValueTrait;
+
+	final public const MIME_TYPE = 'application/pdf';
+
+	/** @var int[]  */
+	protected array|null $prevColor = null;
+	protected FPDF       $fpdf;
 
 	/**
 	 * QRFpdf constructor.
 	 *
 	 * @throws \chillerlan\QRCode\Output\QRCodeOutputException
 	 */
-	public function __construct(SettingsContainerInterface $options, QRMatrix $matrix){
+	public function __construct(SettingsContainerInterface|QROptions $options, QRMatrix $matrix){
 
 		if(!class_exists(FPDF::class)){
 			// @codeCoverageIgnoreStart
 			throw new QRCodeOutputException(
 				'The QRFpdf output requires FPDF (https://github.com/Setasign/FPDF)'.
-				' as dependency but the class "\\FPDF" couldn\'t be found.'
+				// phpcs:ignore
+				' as dependency but the class "\\FPDF" could not be found.'
 			);
 			// @codeCoverageIgnoreEnd
 		}
@@ -45,71 +55,66 @@ class QRFpdf extends QROutputAbstract{
 	}
 
 	/**
-	 * @inheritDoc
+	 * Initializes an FPDF instance
 	 */
-	protected function moduleValueIsValid($value):bool{
-		return is_array($value) && count($value) >= 3;
-	}
-
-	/**
-	 * @inheritDoc
-	 */
-	protected function getModuleValue($value):array{
-		return array_values($value);
-	}
-
-	/**
-	 * @inheritDoc
-	 */
-	protected function getDefaultModuleValue(bool $isDark):array{
-		return $isDark ? [0, 0, 0] : [255, 255, 255];
-	}
-
-	/**
-	 * @inheritDoc
-	 *
-	 * @return string|\FPDF
-	 */
-	public function dump(string $file = null){
-		$file ??= $this->options->cachefile;
-
-		$fpdf = new FPDF('P', $this->options->fpdfMeasureUnit, [$this->length, $this->length]);
+	protected function initFPDF():FPDF{
+		$fpdf = new FPDF('P', $this->options->fpdfMeasureUnit, $this->getOutputDimensions());
 		$fpdf->AddPage();
 
-		$prevColor = null;
+		return $fpdf;
+	}
 
-		foreach($this->matrix->matrix() as $y => $row){
+	public function dump(string|null $file = null, FPDF|null $fpdf = null):string|FPDF{
+		$this->fpdf = ($fpdf ?? $this->initFPDF());
 
+		if($this::moduleValueIsValid($this->options->bgColor)){
+			$bgColor          = $this->prepareModuleValue($this->options->bgColor);
+			[$width, $height] = $this->getOutputDimensions();
+
+			$this->fpdf->SetFillColor(...$bgColor);
+			$this->fpdf->Rect(0, 0, $width, $height, 'F');
+		}
+
+		$this->prevColor = null;
+
+		foreach($this->matrix->getMatrix() as $y => $row){
 			foreach($row as $x => $M_TYPE){
-				/** @var int $M_TYPE */
-				$color = $this->moduleValues[$M_TYPE];
-
-				if($prevColor !== $color){
-					/** @phan-suppress-next-line PhanParamTooFewUnpack */
-					$fpdf->SetFillColor(...$color);
-					$prevColor = $color;
-				}
-
-				$fpdf->Rect($x * $this->scale, $y * $this->scale, 1 * $this->scale, 1 * $this->scale, 'F');
+				$this->module($x, $y, $M_TYPE);
 			}
-
 		}
 
 		if($this->options->returnResource){
-			return $fpdf;
+			return $this->fpdf;
 		}
 
-		$pdfData = $fpdf->Output('S');
+		$pdfData = $this->fpdf->Output('S');
 
-		if($file !== null){
-			$this->saveToFile($pdfData, $file);
-		}
+		$this->saveToFile($pdfData, $file);
 
-		if($this->options->imageBase64){
-			$pdfData = $this->base64encode($pdfData, 'application/pdf');
+		if($this->options->outputBase64){
+			$pdfData = $this->toBase64DataURI($pdfData);
 		}
 
 		return $pdfData;
+	}
+
+	/**
+	 * Renders a single module
+	 */
+	protected function module(int $x, int $y, int $M_TYPE):void{
+
+		if(!$this->drawLightModules && !$this->matrix->isDark($M_TYPE)){
+			return;
+		}
+
+		$color = $this->getModuleValue($M_TYPE);
+
+		if($color !== null && $color !== $this->prevColor){
+			$this->fpdf->SetFillColor(...$color);
+			$this->prevColor = $color;
+		}
+
+		$this->fpdf->Rect(($x * $this->scale), ($y * $this->scale), $this->scale, $this->scale, 'F');
 	}
 
 }

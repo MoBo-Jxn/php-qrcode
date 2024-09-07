@@ -2,63 +2,123 @@
 /**
  * Trait QROptionsTrait
  *
+ * Note: the docblocks in this file are optimized for readability in PhpStorm ond on readthedocs.io
+ *
  * @created      10.03.2018
  * @author       smiley <smiley@chillerlan.net>
  * @copyright    2018 smiley
  * @license      MIT
  *
- * @noinspection PhpUnused
+ * @noinspection PhpUnused, PhpComposerExtensionStubsInspection
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCode;
 
-use chillerlan\QRCode\Common\EccLevel;
-
-use chillerlan\QRCode\Decoder\{GDLuminanceSource, IMagickLuminanceSource};
-use function array_values, count, extension_loaded, in_array, is_numeric, max, min, sprintf, strtolower;
+use chillerlan\QRCode\Common\{EccLevel, MaskPattern, Version};
+use chillerlan\QRCode\Output\QRMarkupSVG;
+use function constant, in_array, is_string, max, min, sprintf, strtolower, strtoupper, trim;
+use const JSON_THROW_ON_ERROR, JSON_UNESCAPED_SLASHES, PHP_EOL;
 
 /**
  * The QRCode plug-in settings & setter functionality
+ *
+ * @property int         $version
+ * @property int         $versionMin
+ * @property int         $versionMax
+ * @property int         $eccLevel
+ * @property int         $maskPattern
+ * @property bool        $addQuietzone
+ * @property int         $quietzoneSize
+ * @property string      $outputInterface
+ * @property bool        $returnResource
+ * @property string|null $cachefile
+ * @property bool        $outputBase64
+ * @property string      $eol
+ * @property mixed       $bgColor
+ * @property bool        $invertMatrix
+ * @property bool        $drawLightModules
+ * @property bool        $drawCircularModules
+ * @property float       $circleRadius
+ * @property array       $keepAsSquare
+ * @property bool        $connectPaths
+ * @property array       $excludeFromConnect
+ * @property array       $moduleValues
+ * @property bool        $addLogoSpace
+ * @property int|null    $logoSpaceWidth
+ * @property int|null    $logoSpaceHeight
+ * @property int|null    $logoSpaceStartX
+ * @property int|null    $logoSpaceStartY
+ * @property int         $scale
+ * @property bool        $imageTransparent
+ * @property mixed       $transparencyColor
+ * @property int         $quality
+ * @property bool        $gdImageUseUpscale
+ * @property string      $imagickFormat
+ * @property string      $cssClass
+ * @property bool        $svgAddXmlHeader
+ * @property string      $svgDefs
+ * @property string      $svgPreserveAspectRatio
+ * @property bool        $svgUseFillAttributes
+ * @property string      $textLineStart
+ * @property int         $jsonFlags
+ * @property string      $fpdfMeasureUnit
+ * @property string|null $xmlStylesheet
  */
 trait QROptionsTrait{
+
+	/*
+	 * QR Code specific settings
+	 */
 
 	/**
 	 * QR Code version number
 	 *
-	 * [1 ... 40] or QRCode::VERSION_AUTO
+	 * `1 ... 40` or `Version::AUTO` (default)
+	 *
+	 * @see \chillerlan\QRCode\Common\Version
 	 */
-	protected int $version = QRCode::VERSION_AUTO;
+	protected int $version = Version::AUTO;
 
 	/**
 	 * Minimum QR version
 	 *
-	 * if $version = QRCode::VERSION_AUTO
+	 * if `QROptions::$version` is set to `Version::AUTO` (default: 1)
 	 */
 	protected int $versionMin = 1;
 
 	/**
 	 * Maximum QR version
+	 *
+	 * if `QROptions::$version` is set to `Version::AUTO` (default: 40)
 	 */
 	protected int $versionMax = 40;
 
 	/**
 	 * Error correct level
 	 *
-	 * QRCode::ECC_X where X is:
+	 * the constant `EccLevel::X` where `X` is:
 	 *
-	 *   - L =>  7%
-	 *   - M => 15%
-	 *   - Q => 25%
-	 *   - H => 30%
+	 * - `L` =>  7% (default)
+	 * - `M` => 15%
+	 * - `Q` => 25%
+	 * - `H` => 30%
+	 *
+	 * alternatively you can just pass the letters L/M/Q/H (case-insensitive) to the magic setter
+	 *
+	 * @see \chillerlan\QRCode\Common\EccLevel
+	 * @see https://github.com/chillerlan/php-qrcode/discussions/160
 	 */
 	protected int $eccLevel = EccLevel::L;
 
 	/**
 	 * Mask Pattern to use (no value in using, mostly for unit testing purposes)
 	 *
-	 * [0...7] or QRCode::MASK_PATTERN_AUTO
+	 * `0 ... 7` or `MaskPattern::PATTERN_AUTO` (default)
+	 *
+	 * @see \chillerlan\QRCode\Common\MaskPattern
 	 */
-	protected int $maskPattern = QRCode::MASK_PATTERN_AUTO;
+	protected int $maskPattern = MaskPattern::AUTO;
 
 	/**
 	 * Add a "quiet zone" (margin) according to the QR code spec
@@ -70,201 +130,262 @@ trait QROptionsTrait{
 	/**
 	 * Size of the quiet zone
 	 *
-	 * internally clamped to [0 ... $moduleCount / 2], defaults to 4 modules
+	 * internally clamped to `0 ... $moduleCount / 2` (default: 4)
 	 */
 	protected int $quietzoneSize = 4;
 
+
+	/*
+	 * General output settings
+	 */
+
 	/**
-	 * The output type
+	 * The FQCN of the `QROutputInterface` to use
+	 */
+	protected string $outputInterface = QRMarkupSVG::class;
+
+	/**
+	 * Return the image resource instead of a render if applicable.
 	 *
-	 *   - QRCode::OUTPUT_MARKUP_XXXX where XXXX = HTML, SVG
-	 *   - QRCode::OUTPUT_IMAGE_XXX where XXX = PNG, GIF, JPG
-	 *   - QRCode::OUTPUT_STRING_XXXX where XXXX = TEXT, JSON
-	 *   - QRCode::OUTPUT_CUSTOM
+	 * - `QRGdImage`: `resource` (PHP < 8), `GdImage`
+	 * - `QRImagick`: `Imagick`
+	 * - `QRFpdf`:    `FPDF`
+	 *
+	 * This option overrides/ignores other output settings, such as `QROptions::$cachefile`
+	 * and `QROptions::$outputBase64`. (default: `false`)
+	 *
+	 * @see \chillerlan\QRCode\Output\QROutputInterface::dump()
 	 */
-	protected string $outputType = QRCode::OUTPUT_MARKUP_SVG;
+	protected bool $returnResource = false;
 
 	/**
-	 * the FQCN of the custom QROutputInterface if $outputType is set to QRCode::OUTPUT_CUSTOM
+	 * Optional cache file path `/path/to/cache.file`
+	 *
+	 * Please note that the `$file` parameter in `QRCode::render()` and `QRCode::renderMatrix()`
+	 * takes precedence over the `QROptions::$cachefile` value. (default: `null`)
+	 *
+	 * @see \chillerlan\QRCode\QRCode::render()
+	 * @see \chillerlan\QRCode\QRCode::renderMatrix()
 	 */
-	protected ?string $outputInterface = null;
+	protected string|null $cachefile = null;
 
 	/**
-	 * /path/to/cache.file
+	 * Toggle base64 data URI or raw data output (if applicable)
+	 *
+	 * (default: `true`)
+	 *
+	 * @see \chillerlan\QRCode\Output\QROutputAbstract::toBase64DataURI()
 	 */
-	protected ?string $cachefile = null;
+	protected bool $outputBase64 = true;
 
 	/**
-	 * newline string [HTML, SVG, TEXT]
+	 * Newline string
+	 *
+	 * (default: `PHP_EOL`)
 	 */
 	protected string $eol = PHP_EOL;
 
-	/**
-	 * size of a QR code pixel [SVG, IMAGE_*], HTML via CSS
+
+	/*
+	 * Common visual modifications
 	 */
-	protected int $scale = 5;
 
 	/**
-	 * a common css class
-	 */
-	protected string $cssClass = 'qrcode';
-
-	/**
-	 * SVG opacity
-	 */
-	protected float $svgOpacity = 1.0;
-
-	/**
-	 * anything between <defs>
+	 * Sets the image background color (if applicable)
 	 *
-	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Element/defs
+	 * - `QRImagick`: defaults to `"white"`
+	 * - `QRGdImage`: defaults to `[255, 255, 255]`
+	 * - `QRFpdf`: defaults to blank internally (white page)
 	 */
-	protected string $svgDefs = '';
+	protected mixed $bgColor = null;
 
 	/**
-	 * SVG viewBox size. a single integer number which defines width/height of the viewBox attribute.
+	 * Whether to invert the matrix (reflectance reversal)
 	 *
-	 * viewBox="0 0 x x"
+	 * (default: `false`)
 	 *
-	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/viewBox
-	 * @see https://css-tricks.com/scale-svg/#article-header-id-3
+	 * @see \chillerlan\QRCode\Data\QRMatrix::invert()
 	 */
-	protected ?int $svgViewBoxSize = null;
+	protected bool $invertMatrix = false;
 
 	/**
-	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/preserveAspectRatio
+	 * Whether to draw the light (false) modules
+	 *
+	 * (default: `true`)
 	 */
-	protected string $svgPreserveAspectRatio = 'xMidYMid';
+	protected bool $drawLightModules = true;
 
 	/**
-	 * optional "width" attribute with the specified value (note that the value is not checked!)
+	 * Specify whether to draw the modules as filled circles
 	 *
-	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/width
-	 */
-	protected ?string $svgWidth = null;
-
-	/**
-	 * optional "height" attribute with the specified value (note that the value is not checked!)
+	 * a note for `GdImage` output:
 	 *
-	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/height
-	 */
-	protected ?string $svgHeight = null;
-
-	/**
-	 * whether to connect the paths for the several module types to avoid weird glitches when using gradients etc.
+	 * if `QROptions::$scale` is less than 20, the image will be upscaled internally, then the modules will be drawn
+	 * using `imagefilledellipse()` and then scaled back to the expected size
 	 *
-	 * @see https://github.com/chillerlan/php-qrcode/issues/57
-	 */
-	protected bool $connectPaths = false;
-
-	/**
-	 * specify which paths/patterns to exclude from connecting if $svgConnectPaths is set to true
-	 */
-	protected array $excludeFromConnect = [];
-
-	/**
-	 * specify whether to draw the modules as filled circles
+	 * No effect in: `QREps`, `QRFpdf`, `QRMarkupHTML`
 	 *
-	 * a note for GDImage output:
-	 *
-	 * if QROptions::$scale is less or equal than 20, the image will be upscaled internally, then the modules will be drawn
-	 * using imagefilledellipse() and then scaled back to the expected size using IMG_BICUBIC which in turn produces
-	 * unexpected outcomes in combination with transparency - to avoid this, set scale to a value greater than 20.
-	 *
+	 * @see \imagefilledellipse()
 	 * @see https://github.com/chillerlan/php-qrcode/issues/23
 	 * @see https://github.com/chillerlan/php-qrcode/discussions/122
 	 */
 	protected bool $drawCircularModules = false;
 
 	/**
-	 * specifies the radius of the modules when $svgDrawCircularModules is set to true
+	 * Specifies the radius of the modules when `QROptions::$drawCircularModules` is set to `true`
+	 *
+	 * (default: 0.45)
 	 */
 	protected float $circleRadius = 0.45;
 
 	/**
-	 * specifies which module types to exclude when $svgDrawCircularModules is set to true
+	 * Specifies which module types to exclude when `QROptions::$drawCircularModules` is set to `true`
+	 *
+	 * (default: `[]`)
+	 *
+	 * @var int[]
 	 */
 	protected array $keepAsSquare = [];
 
 	/**
-	 * string substitute for dark
+	 * Whether to connect the paths for the several module types to avoid weird glitches when using gradients etc.
+	 *
+	 * This option is exclusive to output classes that use the module collector `QROutputAbstract::collectModules()`,
+	 * which converts the `$M_TYPE` of all modules to `QRMatrix::M_DATA` and `QRMatrix::M_DATA_DARK` respectively.
+	 *
+	 * Module types that should not be added to the connected path can be excluded via `QROptions::$excludeFromConnect`.
+	 *
+	 * Currentty used in `QREps` and `QRMarkupSVG`.
+	 *
+	 * @see \chillerlan\QRCode\Output\QROutputAbstract::collectModules()
+	 * @see \chillerlan\QRCode\QROptionsTrait::$excludeFromConnect
+	 * @see https://github.com/chillerlan/php-qrcode/issues/57
 	 */
-	protected string $textDark = '🔴';
+	protected bool $connectPaths = false;
 
 	/**
-	 * string substitute for light
+	 * Specify which paths/patterns to exclude from connecting if `QROptions::$connectPaths` is set to `true`
+	 *
+	 * @see \chillerlan\QRCode\QROptionsTrait::$connectPaths
+	 *
+	 * @var int[]
 	 */
-	protected string $textLight = '⭕';
+	protected array $excludeFromConnect = [];
 
 	/**
-	 * markup substitute for dark (CSS value)
+	 * Module values map
+	 *
+	 * - `QRImagick`, `QRMarkupHTML`, `QRMarkupSVG`: #ABCDEF, cssname, rgb(), rgba()...
+	 * - `QREps`, `QRFpdf`, `QRGdImage`: `[R, G, B]` // 0-255
+	 * - `QREps`: `[C, M, Y, K]` // 0-255
+	 *
+	 * @see \chillerlan\QRCode\Output\QROutputAbstract::setModuleValues()
+	 *
+	 * @var array<int, mixed>
 	 */
-	protected string $markupDark = '#000';
+	protected array $moduleValues = [];
 
 	/**
-	 * markup substitute for light (CSS value)
+	 * Toggles logo space creation
+	 *
+	 * @see \chillerlan\QRCode\QRCode::addMatrixModifications()
+	 * @see \chillerlan\QRCode\Data\QRMatrix::setLogoSpace()
 	 */
-	protected string $markupLight = '#fff';
+	protected bool $addLogoSpace = false;
 
 	/**
-	 * Return the image resource instead of a render if applicable.
-	 * This option overrides other output options, such as $cachefile and $imageBase64.
+	 * Width of the logo space
 	 *
-	 * Supported by the following modules:
-	 *
-	 * - QRImage:   resource (PHP < 8), GdImage
-	 * - QRImagick: Imagick
-	 * - QRFpdf:    FPDF
-	 *
-	 * @see \chillerlan\QRCode\Output\QROutputInterface::dump()
-	 *
-	 * @var bool
+	 * if only `QROptions::$logoSpaceWidth` is given, the logo space is assumed a square of that size
 	 */
-	protected bool $returnResource = false;
+	protected int|null $logoSpaceWidth = null;
 
 	/**
-	 * toggle base64 or raw image data
+	 * Height of the logo space
+	 *
+	 * if only `QROptions::$logoSpaceHeight` is given, the logo space is assumed a square of that size
 	 */
-	protected bool $imageBase64 = true;
+	protected int|null $logoSpaceHeight = null;
 
 	/**
-	 * toggle background transparency
+	 * Optional horizontal start position of the logo space (top left corner)
+	 */
+	protected int|null $logoSpaceStartX = null;
+
+	/**
+	 * Optional vertical start position of the logo space (top left corner)
+	 */
+	protected int|null $logoSpaceStartY = null;
+
+
+	/*
+	 * Common raster image settings (QRGdImage, QRImagick)
+	 */
+
+	/**
+	 * Pixel size of a QR code module
+	 */
+	protected int $scale = 5;
+
+	/**
+	 * Toggle transparency
 	 *
-	 * - In GdImage mode (png, gif) it sets imagecolortransparent() with QROptions::$imageTransparencyBG.
-	 *   It also sets the "normal" background color without transparency switch.
+	 * - `QRGdImage` and `QRImagick`: the given `QROptions::$transparencyColor` is set as transparent
 	 *
-	 * - In SVG mode (as of v5), it won't render the "light" modules,
-	 *   as opacity/transparency can easily be set with css properties.
-	 *
-	 * - It has no effect in the FPDF and Imagick output modules.
-	 *
-	 * @see \chillerlan\QRCode\QROptions::$imageTransparencyBG
 	 * @see https://github.com/chillerlan/php-qrcode/discussions/121
- 	 */
-	protected bool $imageTransparent = true;
+	 */
+	protected bool $imageTransparent = false;
 
 	/**
-	 * Sets the background color in GD mode.
+	 * Sets a transparency color for when `QROptions::$imageTransparent` is set to `true`.
 	 *
-	 * When QROptions::$imageTransparent is set to true, this color is set as transparent in imagecolortransparent()
+	 * Defaults to `QROptions::$bgColor`.
 	 *
-	 * @see \chillerlan\QRCode\Output\QRGdImage
-	 * @see \chillerlan\QRCode\QROptions::$imageTransparent
-	 * @see imagecolortransparent()
+	 * - `QRGdImage`: `[R, G, B]`, this color is set as transparent in `imagecolortransparent()`
+	 * - `QRImagick`: `"color_str"`, this color is set in `Imagick::transparentPaintImage()`
 	 *
-	 * [R, G, B]
+	 * @see \imagecolortransparent()
+	 * @see \Imagick::transparentPaintImage()
 	 */
-	protected array $imageTransparencyBG = [255, 255, 255];
+	protected mixed $transparencyColor = null;
 
 	/**
-	 * @see imagepng()
+	 * Compression quality
+	 *
+	 * The given value depends on the used output type:
+	 *
+	 * - `QRGdImageBMP`:  `[0...1]`
+	 * - `QRGdImageJPEG`: `[0...100]`
+	 * - `QRGdImageWEBP`: `[0...9]`
+	 * - `QRGdImagePNG`:  `[0...100]`
+	 * - `QRImagick`:     `[0...100]`
+	 *
+	 * @see \imagebmp()
+	 * @see \imagejpeg()
+	 * @see \imagepng()
+	 * @see \imagewebp()
+	 * @see \Imagick::setImageCompressionQuality()
 	 */
-	protected int $pngCompression = -1;
+	protected int $quality = -1;
+
+
+	/*
+	 * QRGdImage settings
+	 */
 
 	/**
-	 * @see imagejpeg()
+	 * Toggles the usage of internal upscaling when `QROptions::$drawCircularModules` is set to `true` and
+	 * `QROptions::$scale` is less than 20
+	 *
+	 * @see \chillerlan\QRCode\Output\QRGdImage::createImage()
+	 * @see https://github.com/chillerlan/php-qrcode/issues/23
 	 */
-	protected int $jpegQuality = 85;
+	protected bool $gdImageUseUpscale = true;
+
+
+	/*
+	 * QRImagick settings
+	 */
 
 	/**
 	 * Imagick output format
@@ -274,69 +395,98 @@ trait QROptionsTrait{
 	 */
 	protected string $imagickFormat = 'png32';
 
-	/**
-	 * Imagick background color (defaults to "transparent")
-	 *
-	 * @see \ImagickPixel::__construct()
+
+	/*
+	 * Common markup output settings (QRMarkupSVG, QRMarkupHTML)
 	 */
-	protected ?string $imagickBG = null;
 
 	/**
-	 * Measurement unit for FPDF output: pt, mm, cm, in (defaults to "pt")
+	 * A common css class
+	 */
+	protected string $cssClass = 'qrcode';
+
+
+	/*
+	 * QRMarkupSVG settings
+	 */
+
+	/**
+	 * Whether to add an XML header line or not, e.g. to embed the SVG directly in HTML
 	 *
-	 * @see \FPDF::__construct()
+	 * `<?xml version="1.0" encoding="UTF-8"?>`
+	 */
+	protected bool $svgAddXmlHeader = true;
+
+	/**
+	 * Anything in the SVG `<defs>` tag
+	 *
+	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Element/defs
+	 */
+	protected string $svgDefs = '';
+
+	/**
+	 * Sets the value for the "preserveAspectRatio" on the `<svg>` element
+	 *
+	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/preserveAspectRatio
+	 */
+	protected string $svgPreserveAspectRatio = 'xMidYMid';
+
+	/**
+	 * Whether to use the SVG `fill` attributes
+	 *
+	 * If set to `true` (default), the `fill` attribute will be set with the module value for the `<path>` element's `$M_TYPE`.
+	 * When set to `false`, the module values map will be ignored and the QR Code may be styled via CSS.
+	 *
+	 * @see https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/fill
+	 */
+	protected bool $svgUseFillAttributes = true;
+
+
+	/*
+	 * QRStringText settings
+	 */
+
+	/**
+	 * An optional line prefix, e.g. empty space to align the QR Code in a console
+	 */
+	protected string $textLineStart = '';
+
+
+	/*
+	 * QRStringJSON settings
+	 */
+
+	/**
+	 * Sets the flags to use for the `json_encode()` call
+	 *
+	 * @see https://www.php.net/manual/json.constants.php
+	 */
+	protected int $jsonFlags = (JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+
+
+	/*
+	 * QRFpdf settings
+	 */
+
+	/**
+	 * Measurement unit for `FPDF` output: `pt`, `mm`, `cm`, `in` (default: `pt`)
+	 *
+	 * @see FPDF::__construct()
 	 */
 	protected string $fpdfMeasureUnit = 'pt';
 
+
+	/*
+	 * QRMarkupXML settings
+	 */
+
 	/**
-	 * Module values map
+	 * Sets an optional XSLT stylesheet in the XML output
 	 *
-	 *   - HTML, IMAGICK: #ABCDEF, cssname, rgb(), rgba()...
-	 *   - IMAGE: [63, 127, 255] // R, G, B
+	 * @see https://developer.mozilla.org/en-US/docs/Web/XSLT
 	 */
-	protected ?array $moduleValues = null;
+	protected string|null $xmlStylesheet = null;
 
-	/**
-	 * use Imaagick (if available) when reading QR Codes
-	 */
-	protected bool $readerUseImagickIfAvailable = false;
-
-	/**
-	 * grayscale the image before reading
-	 */
-	protected bool $readerGrayscale = false;
-
-	/**
-	 * increase the contrast before reading
-	 *
-	 * note that applying contrast works different in GD and Imagick, so mileage may vary
-	 */
-	protected bool $readerIncreaseContrast = false;
-
-	/**
-	 * Toggles logo space creation
-	 */
-	protected bool $addLogoSpace = false;
-
-	/**
-	 * width of the logo space
-	 */
-	protected int $logoSpaceWidth = 0;
-
-	/**
-	 * height of the logo space
-	 */
-	protected int $logoSpaceHeight = 0;
-
-	/**
-	 * optional horizontal start position of the logo space (top left corner)
-	 */
-	protected ?int $logoSpaceStartX = null;
-
-	/**
-	 * optional vertical start position of the logo space (top left corner)
-	 */
-	protected ?int $logoSpaceStartY = null;
 
 	/**
 	 * clamp min/max version number
@@ -364,72 +514,44 @@ trait QROptionsTrait{
 	}
 
 	/**
-	 * sets the error correction level
+	 * sets/clamps the version number
+	 */
+	protected function set_version(int $version):void{
+		$this->version = ($version !== Version::AUTO) ? max(1, min(40, $version)) : Version::AUTO;
+	}
+
+	/**
+	 * sets the ECC level
 	 *
 	 * @throws \chillerlan\QRCode\QRCodeException
 	 */
-	protected function set_eccLevel(int $eccLevel):void{
+	protected function set_eccLevel(int|string $eccLevel):void{
 
-		if(!in_array($eccLevel, [EccLevel::L, EccLevel::M, EccLevel::Q, EccLevel::H], true)){
-			throw new QRCodeException(sprintf('Invalid error correct level: %s', $eccLevel));
+		if(is_string($eccLevel)){
+			$ecc = strtoupper(trim($eccLevel));
+
+			if(!in_array($ecc, ['L', 'M', 'Q', 'H'], true)){
+				throw new QRCodeException(sprintf('Invalid ECC level: "%s"', $ecc));
+			}
+
+			// @todo: PHP 8.3+
+			// $eccLevel = EccLevel::{$ecc};
+			$eccLevel = constant(EccLevel::class.'::'.$ecc);
+		}
+
+		/** @var int $eccLevel */
+		if((0b11 & $eccLevel) !== $eccLevel){
+			throw new QRCodeException(sprintf('Invalid ECC level: "%s"', $eccLevel));
 		}
 
 		$this->eccLevel = $eccLevel;
 	}
 
 	/**
-	 * sets/clamps the mask pattern
+	 * sets/clamps the quiet zone size
 	 */
-	protected function set_maskPattern(int $maskPattern):void{
-
-		if($maskPattern !== QRCode::MASK_PATTERN_AUTO){
-			$this->maskPattern = max(0, min(7, $maskPattern));
-		}
-
-	}
-
-	/**
-	 * sets the transparency background color
-	 *
-	 * @throws \chillerlan\QRCode\QRCodeException
-	 */
-	protected function set_imageTransparencyBG(array $imageTransparencyBG):void{
-
-		// invalid value - set to white as default
-		if(count($imageTransparencyBG) < 3){
-			$this->imageTransparencyBG = [255, 255, 255];
-
-			return;
-		}
-
-		foreach($imageTransparencyBG as $k => $v){
-
-			// cut off exceeding items
-			if($k > 2){
-				break;
-			}
-
-			if(!is_numeric($v)){
-				throw new QRCodeException('Invalid RGB value.');
-			}
-
-			// clamp the values
-			$this->imageTransparencyBG[$k] = max(0, min(255, (int)$v));
-		}
-
-		// use the array values to not run into errors with the spread operator (...$arr)
-		$this->imageTransparencyBG = array_values($this->imageTransparencyBG);
-	}
-
-	/**
-	 * sets/clamps the version number
-	 */
-	protected function set_version(int $version):void{
-
-		if($version !== QRCode::VERSION_AUTO){
-			$this->version = max(1, min(40, $version));
-		}
-
+	protected function set_quietzoneSize(int $quietzoneSize):void{
+		$this->quietzoneSize = max(0, min($quietzoneSize, 75));
 	}
 
 	/**
@@ -448,57 +570,43 @@ trait QROptionsTrait{
 	}
 
 	/**
-	 * enables Imagick for the QR Code reader if the extension is available
-	 */
-	protected function set_readerUseImagickIfAvailable(bool $useImagickIfAvailable):void{
-		$this->readerUseImagickIfAvailable = $useImagickIfAvailable && extension_loaded('imagick');
-	}
-
-	/**
-	 * returns the FQCN of the luminance source class to use in the reader (GD or Imagick)
-	 *
-	 * @see \chillerlan\QRCode\Decoder\LuminanceSourceInterface
-	 */
-	public function getLuminanceSourceFQCN():string{
-		// i still hate this
-		return $this->readerUseImagickIfAvailable
-			? IMagickLuminanceSource::class
-			: GDLuminanceSource::class;
-	}
-
-	/**
 	 * clamp the logo space values between 0 and maximum length (177 modules at version 40)
 	 */
-	protected function clampLogoSpaceValue(int $value):int{
+	protected function clampLogoSpaceValue(int|null $value):int|null{
+
+		if($value === null){
+			return null;
+		}
+
 		return (int)max(0, min(177, $value));
 	}
 
 	/**
 	 * clamp/set logo space width
 	 */
-	protected function set_logoSpaceWidth(int $value):void{
+	protected function set_logoSpaceWidth(int|null $value):void{
 		$this->logoSpaceWidth = $this->clampLogoSpaceValue($value);
 	}
 
 	/**
 	 * clamp/set logo space height
 	 */
-	protected function set_logoSpaceHeight(int $value):void{
+	protected function set_logoSpaceHeight(int|null $value):void{
 		$this->logoSpaceHeight = $this->clampLogoSpaceValue($value);
 	}
 
 	/**
 	 * clamp/set horizontal logo space start
 	 */
-	protected function set_logoSpaceStartX(?int $value):void{
-		$this->logoSpaceStartX = $value === null ? null : $this->clampLogoSpaceValue($value);
+	protected function set_logoSpaceStartX(int|null $value):void{
+		$this->logoSpaceStartX = $this->clampLogoSpaceValue($value);
 	}
 
 	/**
 	 * clamp/set vertical logo space start
 	 */
-	protected function set_logoSpaceStartY(?int $value):void{
-		$this->logoSpaceStartY = $value === null ? null : $this->clampLogoSpaceValue($value);
+	protected function set_logoSpaceStartY(int|null $value):void{
+		$this->logoSpaceStartY = $this->clampLogoSpaceValue($value);
 	}
 
 	/**

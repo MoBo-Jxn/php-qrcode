@@ -7,18 +7,22 @@
  * @copyright    2021 smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCodeTest\Output;
 
-use chillerlan\QRCode\Output\QRMarkupHTML;
-use chillerlan\QRCode\QRCode;
+use chillerlan\QRCode\QROptions;
+use chillerlan\QRCode\Data\QRMatrix;
+use chillerlan\QRCode\Output\{QRMarkupHTML, QROutputInterface};
+use chillerlan\Settings\SettingsContainerInterface;
 
-/**
- *
- */
 final class QRMarkupHTMLTest extends QRMarkupTestAbstract{
 
-	protected string $FQN  = QRMarkupHTML::class;
-	protected string $type = QRCode::OUTPUT_MARKUP_HTML;
+	protected function getOutputInterface(
+		SettingsContainerInterface|QROptions $options,
+		QRMatrix                             $matrix,
+	):QROutputInterface{
+		return new QRMarkupHTML($options, $matrix);
+	}
 
 }

@@ -7,29 +7,115 @@
  * @copyright    2017 Smiley
  * @license      MIT
  */
+declare(strict_types=1);
 
 namespace chillerlan\QRCodeTest\Data;
 
 use chillerlan\QRCode\Data\Kanji;
+use chillerlan\QRCode\Data\QRDataModeInterface;
+use Generator, Throwable;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
+use function bin2hex, chr, defined, sprintf;
 
 /**
  * Tests the Kanji class
  */
-final class KanjiTest extends DatainterfaceTestAbstract{
+final class KanjiTest extends DataInterfaceTestAbstract{
 
-	protected string $FQN      = Kanji::class;
-	protected string $testdata = '茗荷茗荷茗荷茗荷茗荷';
+	protected const testData = '漂う花の香り';
+
+	protected static function getDataModeInterface(string $data):QRDataModeInterface{
+		return new Kanji($data);
+	}
 
 	/**
 	 * isKanji() should pass on Kanji/SJIS characters and fail on everything else
+	 *
+	 * @phpstan-return array<int, array{0: string, 1: bool}>
 	 */
-	public function stringValidateProvider():array{
+	public static function stringValidateProvider():array{
 		return [
 			['茗荷', true],
-			['Ã', false],
+			['Ã', false], // this will fail in SJIS-2004
 			['ABC', false],
 			['123', false],
+			['漂う花の香り', true], // https://genshin-impact.fandom.com/wiki/Floral_Incense
+			['꽃잎 향초의 기도', false], // same as above in korean
 		];
+	}
+
+	/**
+	 * lists the valid SJIS kanji
+	 */
+	public static function kanjiProvider():Generator{
+		$key = fn(int $byte1, int $byte2):string => sprintf('0x%X', (($byte1 << 8) | $byte2));
+		$val = fn(int $byte1, int $byte2):string => mb_convert_encoding(chr($byte1).chr($byte2), 'UTF-8', Kanji::ENCODING);
+
+		for($byte1 = 0x81; $byte1 < 0xeb; $byte1++){
+
+			// skip invalid/vendor ranges
+			if(($byte1 > 0x84 && $byte1 < 0x88) || ($byte1 > 0x9f && $byte1 < 0xe0)){
+				continue;
+			}
+
+			// second byte of a double-byte JIS X 0208 character whose first half of the JIS sequence was odd
+			if(($byte1 % 2) !== 0){
+
+				for($byte2 = 0x40; $byte2 < 0x9f; $byte2++){
+
+					if($byte2 === 0x7f){
+						continue;
+					}
+
+					$chr = $val($byte1, $byte2);
+
+					if($chr === '?'){ // skip unknown glyphs
+						continue;
+					}
+
+					yield $key($byte1, $byte2) => [$chr];
+				}
+
+			}
+			// second byte if the first half of the JIS sequence was even
+			else{
+
+				for($byte2 = 0x9f; $byte2 < 0xfd; $byte2++){
+					$chr = $val($byte1, $byte2);
+
+					if($chr === '?'){
+						continue;
+					}
+
+					yield $key($byte1, $byte2) => [$chr];
+				}
+
+			}
+
+		}
+
+	}
+
+	#[Group('slow')]
+	#[DataProvider('kanjiProvider')]
+	public function testValidateSJIS(string $chr):void{
+		// we may run into several issues due to encoding detection failures
+		try{
+			$this::assertTrue(Kanji::validateString($chr));
+		}
+		catch(Throwable){
+			/** @noinspection PhpUndefinedConstantInspection - see phpunit.xml.dist */
+			if(defined('TEST_IS_CI') && TEST_IS_CI === true){
+				$this::markTestSkipped();
+			}
+
+			$this::markTestSkipped(sprintf(
+				'invalid glyph: %s => %s',
+				bin2hex(mb_convert_encoding($chr, Kanji::ENCODING, 'UTF-8')),
+				$chr,
+			));
+		}
 	}
 
 }
